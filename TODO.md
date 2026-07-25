@@ -5,11 +5,11 @@
 - [ ] Trim ends of track
 - [ ] Insert new start or stop point
 - [ ] Add missing elevation data
-  - From DEM file
-  - From reference GPX
+  - [ ] From DEM file
+  - [ ] From reference GPX
 - [ ] Fill gaps from reference GPX
 - [ ] CLI
-  - [ ] Stats
+  - [x] Stats
   - [ ] Merge
   - [ ] Trim
   - [ ] Insert
