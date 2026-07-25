@@ -1,7 +1,11 @@
+from __future__ import annotations
+
+import copy
 import xml.etree.ElementTree as ET
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
+from io import BytesIO
 from os import PathLike
 
 from .utils import distance
@@ -24,11 +28,34 @@ class GPXStats:
     max_elev: float | None
 
 
+class TrackBuilder:
+    """Builder for adding track segments and points."""
+
+    def __init__(self, root: ET.Element, uri: str, namespaces: dict[str, str]):
+        track = ET.SubElement(root, f"{{{uri}}}trk")
+        self._segment = ET.SubElement(track, f"{{{uri}}}trkseg")
+        self._namespaces = namespaces
+        self._uri = uri
+
+    def add_point(self, lat: float, lon: float) -> GPXPoint:
+        """Add a point to this track segment and return its wrapper."""
+        pt = ET.SubElement(
+            self._segment, f"{{{self._uri}}}trkpt", lat=str(lat), lon=str(lon)
+        )
+        return GPXPoint(pt, self._uri, self._namespaces)
+
+    def add_points(self, coords: Iterable[tuple[float, float]]) -> TrackBuilder:
+        for lat, lon in coords:
+            self.add_point(lat, lon)
+        return self
+
+
 class GPXPoint:
     """Wrapper for a GPX point (trkpt, wpt, or rtept)."""
 
-    def __init__(self, element: ET.Element, namespace: dict[str, str]):
+    def __init__(self, element: ET.Element, uri: str, namespace: dict[str, str]):
         self._element = element
+        self._uri = uri
         self._namespace = namespace
 
     @property
@@ -48,7 +75,7 @@ class GPXPoint:
     def elevation(self, value: float):
         ele = self._element.find("gpx:ele", self._namespace)
         if ele is None:
-            ele = ET.SubElement(self._element, "ele")
+            ele = ET.SubElement(self._element, f"{{{self._uri}}}ele")
         ele.text = f"{value:.3g}"
 
     @property
@@ -63,23 +90,58 @@ class GPXPoint:
 class GPX:
     """Lightweight GPX parser."""
 
-    def __init__(self, file_source: str | PathLike):
-        self.tree = ET.parse(file_source)
-        self.root = self.tree.getroot()
+    def __init__(self, file_source: PathLike | None = None):
+        self.uri = "http://www.topografix.com/GPX/1/1"
+        if file_source is None:
+            self.root = ET.Element(f"{{{self.uri}}}gpx", version="1.1", creator="GPhiX")
+            self.tree = ET.ElementTree(self.root)
+        else:
+            self.tree = ET.parse(file_source)
+            self.root = self.tree.getroot()
+            self.uri = self.root.attrib.get("xmlns", self.uri)
+        self.namespaces: dict[str, str] = {"gpx": self.uri}
 
-        self.ns_uri = self.root.attrib.get("xmlns", "http://www.topografix.com/GPX/1/1")
-        self.namespaces: dict[str, str] = {"gpx": self.ns_uri}
+    def add_track(self) -> TrackBuilder:
+        """Add a track segment to the GPX and return a builder."""
+        return TrackBuilder(self.root, self.uri, self.namespaces)
+
+    def add_waypoint(self, lat: float, lon: float) -> GPXPoint:
+        """Add a waypoint to the GPX and return its wrapper."""
+        wpt = ET.SubElement(self.root, f"{{{self.uri}}}wpt", lat=str(lat), lon=str(lon))
+        return GPXPoint(wpt, self.uri, self.namespaces)
+
+    @classmethod
+    def merge(cls, sources: list[GPX | PathLike]) -> GPX:
+        """Merge multiple GPX files or objects into a single GPX object."""
+        merged = cls(None)
+        no_metadata = True
+        for source in sources:
+            src: GPX = source if isinstance(source, GPX) else GPX(source)
+            for child in src.root:
+                tag = child.tag.split("}")[-1]
+                if tag == "metadata" and no_metadata:
+                    merged.root.append(child)
+                    no_metadata = False
+                elif tag in {"trk", "wpt", "rte"}:
+                    merged.root.append(copy.deepcopy(child))
+        return merged
 
     def points(self) -> Iterator[GPXPoint]:
         """Generator yielding all points (trkpt, wpt, rtept) in the GPX file."""
         for tag in ["trkpt", "wpt", "rtept"]:
             for node in self.root.findall(f".//gpx:{tag}", self.namespaces):
-                yield GPXPoint(node, self.namespaces)
+                yield GPXPoint(node, self.uri, self.namespaces)
 
-    def write(self, output_path: str | PathLike) -> None:
+    def to_string(self) -> str:
+        """Serialize the GPX to an XML string."""
+        buf = BytesIO()
+        self.write(buf)
+        return buf.getvalue().decode("utf-8")
+
+    def write(self, output_path: PathLike | BytesIO) -> None:
         """Write the GPX to a file."""
-        if self.ns_uri:
-            ET.register_namespace("", self.ns_uri)
+        if self.uri:
+            ET.register_namespace("", self.uri)
         self.tree.write(output_path, encoding="utf-8", xml_declaration=True)
 
     def stats(self) -> GPXStats:

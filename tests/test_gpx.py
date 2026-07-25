@@ -88,8 +88,59 @@ def test_gpx_class_parse(tmp_path):
     assert abs(points[2].latitude - 40.7128) < 0.0001
     assert abs(points[2].longitude - (-74.0060)) < 0.0001
 
-    # Test writing with GPX class
-    gpx.write(str(output_gpx))
+    gpx.write(output_gpx)
     gpx2 = GPX(output_gpx)
-    points2 = list(gpx2.points())
-    assert len(points2) == 3
+    assert len(list(gpx.points())) == len(list(gpx2.points()))
+
+
+def test_merge_tracks(tmp_path):
+    """Test that tracks from multiple files are preserved."""
+    f1 = tmp_path / "a.gpx"
+    f2 = tmp_path / "b.gpx"
+    f3 = tmp_path / "c.gpx"
+
+    create_gpx_file(f1, coords=[(40.0, -74.0)])
+    create_gpx_file(f2, coords=[(41.0, -73.0)])
+    create_gpx_file(f3, coords=[(50.0, 1.0)])
+
+    merged = GPX.merge([f1, f2, f3])
+    assert len(merged.root.findall("gpx:trk", merged.namespaces)) == 3
+    assert len(list(merged.points())) == 3
+
+
+def test_merge_multi_track_files(tmp_path):
+    """Test merging files that each contain multiple tracks."""
+    gpx1 = GPX(None)
+    gpx1.add_track().add_points([(40.0, -74.0), (40.1, -73.9)])
+    gpx1.add_track().add_points([(41.0, -73.0), (41.1, -72.9)])
+
+    gpx2 = GPX(None)
+    gpx2.add_track().add_points([(50.0, 1.0), (50.1, 1.1)])
+    gpx2.add_track().add_points([(51.0, 2.0), (51.1, 2.1)])
+
+    merged = GPX.merge([gpx1, gpx2])
+    assert len(merged.root.findall("gpx:trk", merged.namespaces)) == 4
+    assert len(list(merged.points())) == 8
+
+
+def test_merge_waypoints(tmp_path):
+    """Test that waypoints from multiple sources are combined."""
+    gpx1 = GPX(None)
+    gpx1.add_waypoint(50.0, 1.0).elevation = 50.0
+
+    gpx2 = GPX(None)
+    gpx2.add_waypoint(51.0, 2.0)
+    gpx2.add_waypoint(52.0, 3.0).elevation = 100.0
+
+    merged = GPX.merge([gpx1, gpx2])
+    assert len(list(merged.points())) == 3
+
+
+def test_merge_single_file(tmp_path):
+    """Merging one file returns an equivalent GPX."""
+    f = tmp_path / "input.gpx"
+    create_gpx_file(f, elevation=[10.0, 20.0, 30.0])
+
+    orig = GPX(f)
+    merged = GPX.merge([f])
+    assert merged.stats() == orig.stats()

@@ -1,7 +1,7 @@
 # TODO
 
 - [x] Stats
-- [ ] Merge GPX files
+- [x] Merge GPX files
 - [ ] Trim ends of track
 - [ ] Insert new start or stop point
 - [ ] Add missing elevation data
@@ -10,7 +10,7 @@
 - [ ] Fill gaps from reference GPX
 - [ ] CLI
   - [x] Stats
-  - [ ] Merge
+  - [x] Merge
   - [ ] Trim
   - [ ] Insert
   - [ ] Elevation

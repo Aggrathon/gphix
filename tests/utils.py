@@ -1,12 +1,13 @@
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from os import PathLike
 
 
 def create_gpx_file(
     gpx_path: PathLike,
-    coords: list[tuple[float, float]] | None = None,
-    elevation: bool | float | list[float] = False,
-    time: bool | datetime | list[datetime] = False,
+    coords: Sequence[tuple[float, float]] | None = None,
+    elevation: bool | float | Sequence[float] = False,
+    time: bool | datetime | Sequence[datetime] = False,
 ):
     """Create a minimal GPX track file for testing.
 
@@ -41,7 +42,7 @@ def create_gpx_file(
 
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
-        '<gpx version="1.1" creator="GPeleX" xmlns="http://www.topografix.com/GPX/1/1">',
+        '<gpx version="1.1" creator="GPhiX" xmlns="http://www.topografix.com/GPX/1/1">',
         "  <trk>",
         "    <trkseg>",
     ]

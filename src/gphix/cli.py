@@ -22,10 +22,27 @@ def main(args: list[str] | None = None, out: TextIO = sys.stdout) -> None:
     )
     stats_parser.add_argument("gpx_file", type=Path, help="Path to the GPX file")
 
+    # --- merge ---
+    merge_parser = subparsers.add_parser(
+        "merge", help="Merge multiple GPX files into one"
+    )
+    merge_parser.add_argument(
+        "input_files", type=Path, nargs="+", help="Input GPX files to merge"
+    )
+    merge_parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default="-",
+        help="Output GPX file path (use - for stdout)",
+    )
+
     parsed = parser.parse_args(args)
 
     if parsed.command == "stats":
         _cmd_stats(parsed.gpx_file, out)
+    elif parsed.command == "merge":
+        _cmd_merge(parsed.input_files, parsed.output, out)
     else:
         parser.print_help(out)
 
@@ -57,6 +74,27 @@ def _cmd_stats(gpx_file: Path, out: TextIO) -> None:
         f"({stats.max_lat:.6f}, {stats.max_lon:.6f})",
         file=out,
     )
+
+
+def _cmd_merge(input_files: list[Path], output: Path, out: TextIO) -> None:
+    """Handle the ``merge`` subcommand."""
+    merged = GPX.merge(input_files)
+
+    if output == Path("-"):
+        # Write raw XML to stdout, nothing else
+        print(merged.to_string(), end="", file=out)
+    else:
+        merged.write(output)
+
+        stats = merged.stats()
+        track_count = len(merged.root.findall("gpx:trk", merged.namespaces))
+        waypoint_count = len(merged.root.findall("gpx:wpt", merged.namespaces))
+
+        print(f"Merged {len(input_files)} file(s) → {output}", file=out)
+        print(f"  Points:  {stats.points}", file=out)
+        print(f"  Tracks:  {track_count}", file=out)
+        print(f"  Waypts:  {waypoint_count}", file=out)
+        print(f"  Distance: {_format_distance(stats.distance_m)}", file=out)
 
 
 def _format_distance(meters: float) -> str:

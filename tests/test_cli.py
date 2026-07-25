@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from io import StringIO
 
 from gphix.cli import _cmd_stats, _format_distance, _format_duration, main
+from gphix.gpx import GPX
 
 from .utils import create_gpx_file
 
@@ -68,3 +69,49 @@ def test_main_help():
     output = buf.getvalue()
     assert "gphix" in output
     assert "stats" in output
+
+
+def test_cmd_merge(tmp_path):
+    """Test the merge CLI command."""
+    f1 = tmp_path / "a.gpx"
+    f2 = tmp_path / "b.gpx"
+    out = tmp_path / "merged.gpx"
+
+    from tests.utils import create_gpx_file
+
+    create_gpx_file(f1, coords=[(40.0, -74.0)])
+    create_gpx_file(f2, coords=[(51.0, 1.0)])
+
+    buf = StringIO()
+    main(["merge", str(f1), str(f2), "-o", str(out)], out=buf)
+    output = buf.getvalue()
+
+    assert "Merged 2 file" in output
+    assert "Points:  2" in output
+    assert "Tracks:  2" in output
+    assert "Waypts:  0" in output
+
+    merged = GPX(out)
+    assert len(list(merged.points())) == 2
+
+
+def test_cmd_merge_stdout(tmp_path):
+    """Test that merge with -o prints raw XML to stdout."""
+    f1 = tmp_path / "a.gpx"
+    f2 = tmp_path / "b.gpx"
+
+    create_gpx_file(f1, coords=[(40.0, -74.0)])
+    create_gpx_file(f2, coords=[(51.0, 1.0)])
+
+    buf = StringIO()
+    main(["merge", str(f1), str(f2), "-o", "-"], out=buf)
+    output = buf.getvalue()
+
+    # Should be raw XML, no summary text
+    assert "<?xml" in output
+    assert "<gpx" in output
+    assert "</gpx>" in output
+    # No summary lines
+    assert "Merged" not in output
+    assert "Points:" not in output
+    assert "Tracks:" not in output
