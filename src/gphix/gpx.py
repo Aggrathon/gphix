@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import itertools
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
@@ -8,7 +9,53 @@ from datetime import datetime
 from io import BytesIO
 from os import PathLike
 
-from .utils import distance
+from .utils import distance, update_bounds
+
+
+@dataclass
+class GPXSegment:
+    """A GPX track segment or route with its parent and point elements."""
+
+    track: ET.Element
+    segment: ET.Element
+    uri: str
+    namespaces: dict[str, str]
+    point_tag: str = "trkpt"
+    _time: datetime | bool | None = None
+
+    @property
+    def time(self) -> datetime | bool:
+        """Timestamp of the first point in this segment, computed lazily and cached."""
+        if self._time is None:
+            if (pt := self.first_point()) and pt.time is not None:
+                self._time = pt.time
+            else:
+                self._time = False
+        return self._time
+
+    def first_point(self) -> GPXPoint | None:
+        """Return the first point in this segment, or None if empty."""
+        if (
+            pt := self.segment.find(f"gpx:{self.point_tag}", self.namespaces)
+        ) is not None:
+            return GPXPoint(pt, self.uri, self.namespaces)
+        return None
+
+    def __len__(self) -> int:
+        """Number of points in this segment."""
+        return len(self.segment.findall(f"gpx:{self.point_tag}", self.namespaces))
+
+    def points(self) -> Iterator[GPXPoint]:
+        """Yield `GPXPoint` for each point in this segment."""
+        for pt in self.segment.findall(f"gpx:{self.point_tag}", self.namespaces):
+            yield GPXPoint(pt, self.uri, self.namespaces)
+
+    def remove(self, target: GPXPoint | None):
+        """Remove a point (or the whole segment if None) from the track."""
+        if target is None:
+            self.track.remove(self.segment)
+        else:
+            self.segment.remove(target.element)
 
 
 @dataclass(frozen=True)
@@ -16,16 +63,17 @@ class GPXStats:
     """Computed statistics for a GPX file."""
 
     points: int
-    distance_m: float
-    duration_s: float | None
+    distance: float
+    duration: float
     start_time: datetime | None
     end_time: datetime | None
-    min_lat: float
-    max_lat: float
-    min_lon: float
-    max_lon: float
+    min_lat: float | None
+    max_lat: float | None
+    min_lon: float | None
+    max_lon: float | None
     min_elev: float | None
     max_elev: float | None
+    tracks: int
 
 
 class TrackBuilder:
@@ -50,47 +98,54 @@ class TrackBuilder:
         return self
 
 
+@dataclass
 class GPXPoint:
     """Wrapper for a GPX point (trkpt, wpt, or rtept)."""
 
-    def __init__(self, element: ET.Element, uri: str, namespace: dict[str, str]):
-        self._element = element
-        self._uri = uri
-        self._namespace = namespace
+    element: ET.Element
+    uri: str
+    namespace: dict[str, str]
 
     @property
     def latitude(self) -> float:
-        return float(self._element.get("lat", ""))
+        return float(self.element.get("lat", ""))
 
     @property
     def longitude(self) -> float:
-        return float(self._element.get("lon", ""))
+        return float(self.element.get("lon", ""))
 
     @property
     def elevation(self) -> float | None:
-        ele = self._element.find("gpx:ele", self._namespace)
+        ele = self.element.find("gpx:ele", self.namespace)
         return float(ele.text) if ele is not None and ele.text is not None else None
 
     @elevation.setter
     def elevation(self, value: float):
-        ele = self._element.find("gpx:ele", self._namespace)
+        ele = self.element.find("gpx:ele", self.namespace)
         if ele is None:
-            ele = ET.SubElement(self._element, f"{{{self._uri}}}ele")
+            ele = ET.SubElement(self.element, f"{{{self.uri}}}ele")
         ele.text = f"{value:.3g}"
 
     @property
     def time(self) -> datetime | None:
         """ISO 8601 time parsed as datetime, or None if absent."""
-        t = self._element.find("gpx:time", self._namespace)
+        t = self.element.find("gpx:time", self.namespace)
         if t is None or t.text is None:
             return None
         return datetime.fromisoformat(t.text)
+
+    @time.setter
+    def time(self, value: datetime):
+        t = self.element.find("gpx:time", self.namespace)
+        if t is None:
+            t = ET.SubElement(self.element, f"{{{self.uri}}}time")
+        t.text = value.isoformat()
 
 
 class GPX:
     """Lightweight GPX parser."""
 
-    def __init__(self, file_source: PathLike | None = None):
+    def __init__(self, file_source: PathLike | BytesIO | None = None):
         self.uri = "http://www.topografix.com/GPX/1/1"
         if file_source is None:
             self.root = ET.Element(f"{{{self.uri}}}gpx", version="1.1", creator="GPhiX")
@@ -111,7 +166,7 @@ class GPX:
         return GPXPoint(wpt, self.uri, self.namespaces)
 
     @classmethod
-    def merge(cls, sources: list[GPX | PathLike]) -> GPX:
+    def merge(cls, sources: list[GPX | PathLike | BytesIO]) -> GPX:
         """Merge multiple GPX files or objects into a single GPX object."""
         merged = cls(None)
         no_metadata = True
@@ -146,35 +201,158 @@ class GPX:
 
     def stats(self) -> GPXStats:
         """Compute and return statistics for all points in the GPX."""
-        lats = []
-        lons = []
-        elev = []
-        time = []
-        for p in self.points():
-            lats.append(p.latitude)
-            lons.append(p.longitude)
-            elev.append(p.elevation)
-            if (tm := p.time) is not None:
-                time.append(tm)
-        total_distance = distance(zip(lats, lons, elev))
-        elev = [e for e in elev if e is not None]
+        duration = 0.0
+        length = 0.0
+        points = 0
+        bounds_time = None, None
+        bounds_elev = None, None
+        bounds_lat = None, None
+        bounds_lon = None, None
+        for seg in self.segments(sort=False, routes=True):
+            times = []
+            lats = []
+            lons = []
+            elev = []
+            for p in seg.points():
+                if p.time:
+                    times.append(p.time)
+                lats.append(p.latitude)
+                lons.append(p.longitude)
+                elev.append(p.elevation)
+            points += len(lats)
+            if times:
+                start = max(times)
+                end = min(times)
+                duration += (start - end).total_seconds()
+                bounds_time = update_bounds(*bounds_time, (start, end))
+            if lats:
+                length += distance(zip(lats, lons, elev))
+                bounds_lat = update_bounds(*bounds_lat, lats)
+                bounds_lon = update_bounds(*bounds_lon, lons)
+                bounds_elev = update_bounds(
+                    *bounds_elev, [e for e in elev if e is not None]
+                )
 
-        if time:
-            duration_s = (time[-1] - time[0]).total_seconds()
-            start_time, end_time = time[0], time[-1]
-        else:
-            duration_s = start_time = end_time = None
+        track_count = len(self.root.findall("gpx:trk", self.namespaces))
 
         return GPXStats(
-            points=len(lats),
-            distance_m=total_distance,
-            duration_s=duration_s,
-            start_time=start_time,
-            end_time=end_time,
-            min_lat=min(lats, default=0.0),
-            max_lat=max(lats, default=0.0),
-            min_lon=min(lons, default=0.0),
-            max_lon=max(lons, default=0.0),
-            min_elev=min(elev, default=None),
-            max_elev=max(elev, default=None),
+            points=points,
+            distance=length,
+            duration=duration,
+            start_time=bounds_time[0],
+            end_time=bounds_time[1],
+            min_lat=bounds_lat[0],
+            max_lat=bounds_lat[1],
+            min_lon=bounds_lon[0],
+            max_lon=bounds_lon[1],
+            min_elev=bounds_elev[0],
+            max_elev=bounds_elev[1],
+            tracks=track_count,
         )
+
+    def segments(self, sort: bool = True, routes: bool = False) -> list[GPXSegment]:
+        """Return ``GPXSegment`` objects.
+
+        Args:
+            sort: Sort segments temporally (segments without timestamps first).
+            routes: Also include route segments (``rte`` elements).
+        """
+        segments: list[GPXSegment] = []
+        for trk in self.root.findall("gpx:trk", self.namespaces):
+            for seg in trk.findall("gpx:trkseg", self.namespaces):
+                segments.append(GPXSegment(trk, seg, self.uri, self.namespaces))
+
+        if routes:
+            for rte in self.root.findall("gpx:rte", self.namespaces):
+                segments.append(
+                    GPXSegment(self.root, rte, self.uri, self.namespaces, "rtept")
+                )
+
+        if sort:
+            with_time = sorted([s for s in segments if s.time], key=lambda s: s.time)
+            without_time = [s for s in segments if not s.time]
+            return without_time + with_time
+        return segments
+
+    def trim(
+        self,
+        start: float = 0.0,
+        end: float = 0.0,
+        by_time: bool = False,
+        by_distance: bool = False,
+    ) -> GPX:
+        """Trim points from the start and end of all tracks.
+
+        Tracks are sorted temporally (by earliest timestamp).
+        Only points falling inside the middle are retained.
+
+        Args:
+            start:     Fraction (0.0–1.0) to remove from the beginning.
+            end:       Fraction (0.0–1.0) to remove from the end.
+            by_time:       If True, *start*/*end* are seconds.
+            by_distance:   If True, *start*/*end* are metres.
+                           Otherwise they are fractions of total points (0.0–1.0).
+
+        Returns:
+            A new `GPX` with the trimmed data (original is unchanged).
+        """
+        if by_time and by_distance:
+            raise ValueError("Cannot specify both by_time and by_distance")
+
+        clone = copy.deepcopy(self)
+        segments = clone.segments()
+
+        if not segments:
+            return clone
+
+        counter: float | int = 0.0
+        if by_time:
+            step = _step_time
+        elif by_distance:
+            step = _step_dist
+        else:
+            counter = -1
+            step = lambda p1, p2: 1
+
+        positions: list[tuple[GPXSegment, GPXPoint, float | int]] = []
+        for seg in segments:
+            first = seg.first_point()
+            if first is not None:
+                if not by_time and not by_distance:
+                    counter += 1
+                positions.append((seg, first, counter))
+            for p1, p2 in itertools.pairwise(seg.points()):
+                counter += step(p1, p2)
+                positions.append((seg, p2, counter))
+
+        if counter == 0:
+            return clone
+
+        if not by_time and not by_distance:
+            start = round(start * (counter + 1))
+            end = round(end * counter)
+
+        if start + end >= counter:
+            raise ValueError("Cannot remove more points than available")
+        end = counter - end
+        for seg, pt, pos in positions:
+            if not (start <= pos <= end):
+                seg.remove(pt)
+
+        return clone
+
+
+def _step_time(p1: GPXPoint, p2: GPXPoint) -> float | int:
+    if (t1 := p1.time) is not None and (t2 := p2.time) is not None:
+        return (t2 - t1).total_seconds()
+    else:
+        return 0.0
+
+
+def _step_dist(p1: GPXPoint, p2: GPXPoint) -> float | int:
+    return distance(
+        (
+            (p1.latitude, p1.longitude, p1.elevation),
+            (p2.latitude, p2.longitude, p2.elevation),
+        )
+    )

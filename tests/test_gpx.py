@@ -13,8 +13,8 @@ def test_stats_basic(tmp_path):
     stats = gpx.stats()
 
     assert stats.points == 3
-    assert isinstance(stats.distance_m, float)
-    assert stats.duration_s is None
+    assert isinstance(stats.distance, float)
+    assert stats.duration == 0.0
     assert stats.start_time is None
     assert stats.end_time is None
     assert stats.min_lat == 40.7128
@@ -23,6 +23,7 @@ def test_stats_basic(tmp_path):
     assert stats.max_lon == 2.2945
     assert stats.min_elev is None
     assert stats.max_elev is None
+    assert stats.tracks == 1
 
 
 def test_stats_with_elevation(tmp_path):
@@ -48,7 +49,7 @@ def test_stats_with_time(tmp_path):
     gpx = GPX(gpx_path)
     stats = gpx.stats()
 
-    assert stats.duration_s == (t2 - t0).total_seconds()
+    assert stats.duration == (t2 - t0).total_seconds()
     assert stats.start_time == t0
     assert stats.end_time == t2
 
@@ -61,7 +62,7 @@ def test_stats_empty(tmp_path):
     stats = gpx.stats()
 
     assert stats.points == 0
-    assert stats.distance_m == 0.0
+    assert stats.distance == 0.0
     assert stats.min_elev is None
     assert stats.max_elev is None
 

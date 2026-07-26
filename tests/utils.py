@@ -8,6 +8,7 @@ def create_gpx_file(
     coords: Sequence[tuple[float, float]] | None = None,
     elevation: bool | float | Sequence[float] = False,
     time: bool | datetime | Sequence[datetime] = False,
+    metadata: str = "",
 ):
     """Create a minimal GPX track file for testing.
 
@@ -18,6 +19,7 @@ def create_gpx_file(
             `float` = single value for all points, `list[float]` = one per point.
         time: `False` = no time, `True` = auto-generated sequential times,
             `datetime` = same time for all points, `list[datetime]` = one per point.
+        metadata: Raw XML to insert inside a `<metadata>` element (empty = none).
     """
     if coords is None:
         coords = [(48.8584, 2.2945), (51.5074, -0.1278), (40.7128, -74.006)]
@@ -43,9 +45,13 @@ def create_gpx_file(
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<gpx version="1.1" creator="GPhiX" xmlns="http://www.topografix.com/GPX/1/1">',
-        "  <trk>",
-        "    <trkseg>",
     ]
+    if metadata:
+        lines.append("  <metadata>")
+        lines.append(metadata)
+        lines.append("  </metadata>")
+    lines.append("  <trk>")
+    lines.append("    <trkseg>")
     for i, (lat, lon) in enumerate(coords):
         eles = f"<ele>{elev[i]}</ele>" if i < len(elev) else ""
         tms = f"<time>{tm[i].isoformat()}</time>" if i < len(tm) else ""

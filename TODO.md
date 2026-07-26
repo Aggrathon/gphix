@@ -2,7 +2,7 @@
 
 - [x] Stats
 - [x] Merge GPX files
-- [ ] Trim ends of track
+- [x] Trim ends of track
 - [ ] Insert new start or stop point
 - [ ] Add missing elevation data
   - [ ] From DEM file
@@ -11,7 +11,7 @@
 - [ ] CLI
   - [x] Stats
   - [x] Merge
-  - [ ] Trim
+  - [x] Trim
   - [ ] Insert
   - [ ] Elevation
   - [ ] Fill

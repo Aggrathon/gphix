@@ -1,7 +1,13 @@
+from __future__ import annotations
+
 import itertools
 import math
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from math import radians
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from _typeshed import SupportsRichComparisonT
 
 _EARTH_RADIUS_M = 6371000
 
@@ -32,3 +38,14 @@ def distance(coords: Iterable[tuple[float, float, float | None]]) -> float:
         else:
             total += ground
     return total
+
+
+def update_bounds(
+    minv: SupportsRichComparisonT | None,
+    maxv: SupportsRichComparisonT | None,
+    values: Sequence[SupportsRichComparisonT],
+) -> tuple[SupportsRichComparisonT | None, SupportsRichComparisonT | None]:
+    if values:
+        maxv = max(max(values), maxv) if maxv is not None else max(values)
+        minv = min(min(values), minv) if minv is not None else min(values)
+    return minv, maxv
