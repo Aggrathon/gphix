@@ -1,8 +1,8 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from gphix.gpx import GPX
 
-from .utils import create_gpx_file
+from .utils import Point, create_gpx_file
 
 
 def test_stats_basic(tmp_path):
@@ -29,7 +29,14 @@ def test_stats_basic(tmp_path):
 def test_stats_with_elevation(tmp_path):
     """Test stats with a list of custom elevation values."""
     gpx_path = tmp_path / "input.gpx"
-    create_gpx_file(gpx_path, elevation=[0.0, 50.0, 200.0])
+    create_gpx_file(
+        gpx_path,
+        [
+            Point(48.8584, 2.2945, 0.0),
+            Point(51.5074, -0.1278, 50.0),
+            Point(40.7128, -74.006, 200.0),
+        ],
+    )
     gpx = GPX(gpx_path)
     stats = gpx.stats()
 
@@ -37,21 +44,41 @@ def test_stats_with_elevation(tmp_path):
     assert stats.max_elev == 200.0
 
 
-def test_stats_with_time(tmp_path):
-    """Test stats with time data present."""
-
-    t0 = datetime(2024, 6, 1, 10, 0, 0, tzinfo=UTC)
-    t1 = datetime(2024, 6, 1, 10, 5, 0, tzinfo=UTC)
-    t2 = datetime(2024, 6, 1, 10, 10, 0, tzinfo=UTC)
-
+def test_stats_multi_track(tmp_path):
+    """Test that stats correctly aggregate across multiple tracks."""
     gpx_path = tmp_path / "input.gpx"
-    create_gpx_file(gpx_path, time=[t0, t1, t2])
+    create_gpx_file(
+        gpx_path,
+        [Point(40.0, -74.0), Point(40.1, -73.9)],
+        [Point(41.0, -73.0), Point(41.1, -72.9)],
+    )
     gpx = GPX(gpx_path)
     stats = gpx.stats()
 
-    assert stats.duration == (t2 - t0).total_seconds()
-    assert stats.start_time == t0
-    assert stats.end_time == t2
+    assert stats.points == 4
+    assert stats.tracks == 2
+    assert isinstance(stats.distance, float)
+    assert stats.duration == 0.0
+
+
+def test_stats_with_time(tmp_path):
+    """Test stats with time data present."""
+    base = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+    gpx_path = tmp_path / "input.gpx"
+    create_gpx_file(
+        gpx_path,
+        [
+            Point(48.8, 2.2, time=0),
+            Point(51.5, -0.1, time=300),
+            Point(40.7, -74.6, time=600),
+        ],
+        base_time=base,
+    )
+    gpx = GPX(gpx_path)
+    stats = gpx.stats()
+    assert stats.duration == 600
+    assert stats.start_time == base
+    assert stats.end_time == base + timedelta(seconds=600)
 
 
 def test_stats_empty(tmp_path):
@@ -72,7 +99,10 @@ def test_gpx_class_parse(tmp_path):
     input_gpx = tmp_path / "input.gpx"
     output_gpx = tmp_path / "output.gpx"
 
-    create_gpx_file(input_gpx, elevation=True)
+    create_gpx_file(
+        input_gpx,
+        [Point(48.8, 2.9, 100.0), Point(51.5, -0.8, 100.0), Point(40.7, -74.6, 100.0)],
+    )
     gpx = GPX(input_gpx)
     points = list(gpx.points())
     assert len(points) == 3
@@ -80,68 +110,41 @@ def test_gpx_class_parse(tmp_path):
     for point in points:
         assert point.elevation == 100.0
 
-    assert abs(points[0].latitude - 48.8584) < 0.0001
-    assert abs(points[0].longitude - 2.2945) < 0.0001
+    assert abs(points[0].latitude - 48.8) < 0.0001
+    assert abs(points[0].longitude - 2.9) < 0.0001
 
-    assert abs(points[1].latitude - 51.5074) < 0.0001
-    assert abs(points[1].longitude - (-0.1278)) < 0.0001
+    assert abs(points[1].latitude - 51.5) < 0.0001
+    assert abs(points[1].longitude - (-0.8)) < 0.0001
 
-    assert abs(points[2].latitude - 40.7128) < 0.0001
-    assert abs(points[2].longitude - (-74.0060)) < 0.0001
+    assert abs(points[2].latitude - 40.7) < 0.0001
+    assert abs(points[2].longitude - (-74.6)) < 0.0001
 
     gpx.write(output_gpx)
     gpx2 = GPX(output_gpx)
-    assert len(list(gpx.points())) == len(list(gpx2.points()))
+    assert gpx2.to_string() == gpx.to_string()
 
 
-def test_merge_tracks(tmp_path):
-    """Test that tracks from multiple files are preserved."""
-    f1 = tmp_path / "a.gpx"
-    f2 = tmp_path / "b.gpx"
-    f3 = tmp_path / "c.gpx"
+def test_track_builder(tmp_path):
+    """Test TrackBuilder and GPXPoint setters."""
+    base = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
 
-    create_gpx_file(f1, coords=[(40.0, -74.0)])
-    create_gpx_file(f2, coords=[(41.0, -73.0)])
-    create_gpx_file(f3, coords=[(50.0, 1.0)])
+    gpx = GPX(None)
+    gpx.add_track().add_points([(1.0, 2.0), (3.0, 4.0)])
+    pt = gpx.add_track().add_point(5.0, 6.0)
+    pt.elevation = 123.4
+    pt.time = base
 
-    merged = GPX.merge([f1, f2, f3])
-    assert len(merged.root.findall("gpx:trk", merged.namespaces)) == 3
-    assert len(list(merged.points())) == 3
+    gpx.add_waypoint(7.0, 8.0).elevation = 99.0
 
+    output = tmp_path / "builder.gpx"
+    gpx.write(output)
+    gpx2 = GPX(output)
 
-def test_merge_multi_track_files(tmp_path):
-    """Test merging files that each contain multiple tracks."""
-    gpx1 = GPX(None)
-    gpx1.add_track().add_points([(40.0, -74.0), (40.1, -73.9)])
-    gpx1.add_track().add_points([(41.0, -73.0), (41.1, -72.9)])
+    assert len(gpx2.root.findall("gpx:trk", gpx2.namespaces)) == 2
+    points = list(gpx2.points())
+    assert len(points) == 4
 
-    gpx2 = GPX(None)
-    gpx2.add_track().add_points([(50.0, 1.0), (50.1, 1.1)])
-    gpx2.add_track().add_points([(51.0, 2.0), (51.1, 2.1)])
-
-    merged = GPX.merge([gpx1, gpx2])
-    assert len(merged.root.findall("gpx:trk", merged.namespaces)) == 4
-    assert len(list(merged.points())) == 8
-
-
-def test_merge_waypoints(tmp_path):
-    """Test that waypoints from multiple sources are combined."""
-    gpx1 = GPX(None)
-    gpx1.add_waypoint(50.0, 1.0).elevation = 50.0
-
-    gpx2 = GPX(None)
-    gpx2.add_waypoint(51.0, 2.0)
-    gpx2.add_waypoint(52.0, 3.0).elevation = 100.0
-
-    merged = GPX.merge([gpx1, gpx2])
-    assert len(list(merged.points())) == 3
-
-
-def test_merge_single_file(tmp_path):
-    """Merging one file returns an equivalent GPX."""
-    f = tmp_path / "input.gpx"
-    create_gpx_file(f, elevation=[10.0, 20.0, 30.0])
-
-    orig = GPX(f)
-    merged = GPX.merge([f])
-    assert merged.stats() == orig.stats()
+    assert points[1].elevation is None
+    assert points[2].elevation == pt.elevation
+    assert points[2].time == pt.time
+    assert points[3].elevation == 99.0

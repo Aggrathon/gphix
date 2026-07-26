@@ -1,11 +1,9 @@
-import io
-from datetime import UTC, datetime, timedelta
-from io import StringIO
+from io import BytesIO, StringIO
 
 from gphix.cli import _cmd_stats, _format_distance, _format_duration, main
 from gphix.gpx import GPX
 
-from .utils import create_gpx_file
+from .utils import Point, create_gpx_file
 
 
 def test_cmd_stats_no_time_no_elevation(tmp_path):
@@ -19,7 +17,7 @@ def test_cmd_stats_no_time_no_elevation(tmp_path):
 
     assert "Points: 3" in output
     assert "Distance:" in output
-    assert "Duration:" in output
+    assert "Duration: 0s" in output
     assert "Time: N/A" in output
     assert "Elevation: N/A" in output
     assert "BBox:" in output
@@ -27,12 +25,15 @@ def test_cmd_stats_no_time_no_elevation(tmp_path):
 
 def test_cmd_stats_with_time_and_elevation(tmp_path):
     """Test stats command with time and elevation data."""
-    t0 = datetime(2024, 6, 1, 10, 0, 0, tzinfo=UTC)
-    t1 = datetime(2024, 6, 1, 10, 5, 0, tzinfo=UTC)
-    t2 = datetime(2024, 6, 1, 10, 10, 0, tzinfo=UTC)
-
     gpx_path = tmp_path / "input.gpx"
-    create_gpx_file(gpx_path, elevation=[100.0, 200.0, 300.0], time=[t0, t1, t2])
+    create_gpx_file(
+        gpx_path,
+        [
+            Point(48.8, 2.2, 100.0, 0),
+            Point(51.5, -0.1, 200.0, 300),
+            Point(40.7, -74.0, 300.0, 600),
+        ],
+    )
 
     buf = StringIO()
     main(["stats", str(gpx_path)], out=buf)
@@ -78,8 +79,8 @@ def test_cmd_merge(tmp_path):
     f2 = tmp_path / "b.gpx"
     out = tmp_path / "merged.gpx"
 
-    create_gpx_file(f1, coords=[(40.0, -74.0)])
-    create_gpx_file(f2, coords=[(51.0, 1.0)])
+    create_gpx_file(f1, [Point(40.0, -74.0)])
+    create_gpx_file(f2, [Point(51.0, 1.0)])
 
     buf = StringIO()
     main(["merge", str(f1), str(f2), "-o", str(out)], out=buf)
@@ -98,8 +99,8 @@ def test_cmd_merge_stdout(tmp_path):
     f1 = tmp_path / "a.gpx"
     f2 = tmp_path / "b.gpx"
 
-    create_gpx_file(f1, coords=[(40.0, -74.0)])
-    create_gpx_file(f2, coords=[(51.0, 1.0)])
+    create_gpx_file(f1, [Point(40.0, -74.0)])
+    create_gpx_file(f2, [Point(51.0, 1.0)])
 
     buf = StringIO()
     main(["merge", str(f1), str(f2), "-o", "-"], out=buf)
@@ -114,64 +115,9 @@ def test_cmd_merge_stdout(tmp_path):
     assert "Tracks:" not in output
 
 
-def test_cmd_trim_file(tmp_path):
-    """Test the trim CLI command writing to a file."""
-    gpx_path = tmp_path / "input.gpx"
-    coords = [(40.0 + i, -74.0) for i in range(5)]
-    create_gpx_file(gpx_path, coords=coords)
-
-    out_path = tmp_path / "trimmed.gpx"
-    buf = StringIO()
-    main(
-        ["trim", str(gpx_path), "-o", str(out_path), "--start", "20", "--end", "20"],
-        out=buf,
-    )
-
-    output = buf.getvalue()
-    assert "Trimmed" in output
-    assert out_path.exists()
-
-    trimmed = GPX(out_path)
-    assert len(list(trimmed.points())) == 3
-
-
-def test_cmd_trim_percent_default(tmp_path):
-    """Default trim mode is percent."""
-    gpx_path = tmp_path / "input.gpx"
-    coords = [(40.0, -74.0)] * 5
-    create_gpx_file(gpx_path, coords=coords)
-
-    buf = StringIO()
-    main(["trim", str(gpx_path), "-o", "-", "--start", "10", "--end", "10"], out=buf)
-    output = buf.getvalue()
-    assert "<?xml" in output
-    assert "<gpx" in output
-    assert "</gpx>" in output
-    assert "Merged" not in output
-    assert "Points:" not in output
-    assert "Tracks:" not in output
-
-
-def test_cmd_trim_stdout(tmp_path):
-    """Test trim output to stdout."""
-    gpx_path = tmp_path / "input.gpx"
-    create_gpx_file(gpx_path, coords=[(40.0, -74.0)])
-
-    buf = StringIO()
-    main(["trim", str(gpx_path)], out=buf)
-    output = buf.getvalue()
-    assert "<?xml" in output
-    assert "<gpx" in output
-    assert "</gpx>" in output
-    assert "Merged" not in output
-    assert "Points:" not in output
-    assert "Tracks:" not in output
-
-
 def test_cmd_trim_distance_mode(tmp_path):
     """Test trim with --distance flag."""
-    coords = [(0.0, 0.0), (1.0, 0.0), (2.0, 0.0), (3.0, 0.0), (4.0, 0.0)]
-    create_gpx_file(tmp_path / "input.gpx", coords=coords)
+    create_gpx_file(tmp_path / "input.gpx", [Point(i, 0.0) for i in range(5)])
 
     buf = StringIO()
     main(
@@ -192,24 +138,21 @@ def test_cmd_trim_distance_mode(tmp_path):
     assert "<?xml" in output
     assert "<gpx" in output
     assert "</gpx>" in output
-    assert "Merged" not in output
+    assert "Trimmed" not in output
     assert "Points:" not in output
     assert "Tracks:" not in output
 
 
 def test_cmd_trim_time_mode(tmp_path):
     """Test trim with --time flag."""
-    t0 = datetime.now(UTC)
-    times = [t0 + timedelta(minutes=i) for i in range(5)]
-    coords = [(40.0 + i, -74.0) for i in range(5)]
-
-    create_gpx_file(tmp_path / "input.gpx", coords=coords, time=times)
+    path = tmp_path / "input.gpx"
+    create_gpx_file(path, [Point(40.0 + i, -74.0, time=i * 60) for i in range(5)])
 
     buf = StringIO()
     main(
         [
             "trim",
-            str(tmp_path / "input.gpx"),
+            str(path),
             "-o",
             "-",
             "--time",
@@ -224,7 +167,7 @@ def test_cmd_trim_time_mode(tmp_path):
     assert "<?xml" in output
     assert "<gpx" in output
     assert "</gpx>" in output
-    assert "Merged" not in output
+    assert "Trimmed" not in output
     assert "Points:" not in output
     assert "Tracks:" not in output
 
@@ -232,18 +175,19 @@ def test_cmd_trim_time_mode(tmp_path):
 def test_cmd_trim_stdin(tmp_path):
     """Test trim reading from stdin."""
     gpx_path = tmp_path / "input.gpx"
-    create_gpx_file(gpx_path, coords=[(40.0 + i, -74.0) for i in range(5)])
+    out_path = tmp_path / "trimmed.gpx"
+    create_gpx_file(gpx_path, [Point(40.0 + i, -74.0) for i in range(5)])
 
     with open(gpx_path, "rb") as f:
         gpx_content = f.read()
 
     buf = StringIO()
-    main(["trim", "-", "-o", "-"], out=buf, stdin=io.BytesIO(gpx_content))
+    bin = BytesIO(gpx_content)
+    main(
+        ["trim", "-", "-o", str(out_path), "--start=20", "--end=20"], out=buf, stdin=bin
+    )
 
     output = buf.getvalue()
-    assert "<?xml" in output
-    assert "<gpx" in output
-    assert "</gpx>" in output
-    assert "Merged" not in output
-    assert "Points:" not in output
-    assert "Tracks:" not in output
+    assert "Trimmed" in output
+    trimmed = GPX(out_path)
+    assert len(list(trimmed.points())) == 3

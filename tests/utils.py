@@ -1,46 +1,43 @@
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from os import PathLike
+
+
+@dataclass
+class Point:
+    lat: float
+    lon: float
+    ele: float | None = None
+    time: float | None = None  # seconds offset from base_time
 
 
 def create_gpx_file(
     gpx_path: PathLike,
-    coords: Sequence[tuple[float, float]] | None = None,
-    elevation: bool | float | Sequence[float] = False,
-    time: bool | datetime | Sequence[datetime] = False,
+    *tracks: Sequence[Point],
+    waypoints: Sequence[Point] | None = None,
+    base_time: datetime = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
     metadata: str = "",
 ):
     """Create a minimal GPX track file for testing.
 
     Args:
         gpx_path: Output file path.
-        coords: (lat, lon) pairs. Defaults to Paris, London, New York.
-        elevation: `False` = no elevation, `True` = 100.0 m for all points,
-            `float` = single value for all points, `list[float]` = one per point.
-        time: `False` = no time, `True` = auto-generated sequential times,
-            `datetime` = same time for all points, `list[datetime]` = one per point.
-        metadata: Raw XML to insert inside a `<metadata>` element (empty = none).
+        *tracks: Zero or more sequences of :class:`Point`. Each sequence becomes
+            a ``<trk><trkseg>``.  When no tracks are given, a single track with
+            the default 3 coordinates is created.
+        waypoints: Zero or more :class:`Point` objects, each becomes a ``<wpt>``.
+        base_time: Base datetime used when converting ``Point.time`` (seconds
+            offset) to ISO 8601 timestamps.
+        metadata: Raw XML to insert inside a ``<metadata>`` element (empty = none).
     """
-    if coords is None:
-        coords = [(48.8584, 2.2945), (51.5074, -0.1278), (40.7128, -74.006)]
-
-    if elevation is False:
-        elev = []
-    elif elevation is True:
-        elev = [100.0] * len(coords)
-    elif isinstance(elevation, (float, int)):
-        elev = [float(elevation)] * len(coords)
-    else:
-        elev = elevation
-
-    if time is False:
-        tm = []
-    elif time is True:
-        tm = [datetime(2024, 1, 1, 12, i, tzinfo=UTC) for i in range(len(coords))]
-    elif isinstance(time, datetime):
-        tm = [time] * len(coords)
-    else:
-        tm = time
+    defaults = [
+        Point(48.8584, 2.2945),
+        Point(51.5074, -0.1278),
+        Point(40.7128, -74.006),
+    ]
+    if not tracks:
+        tracks = (defaults,)
 
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
@@ -50,13 +47,26 @@ def create_gpx_file(
         lines.append("  <metadata>")
         lines.append(metadata)
         lines.append("  </metadata>")
-    lines.append("  <trk>")
-    lines.append("    <trkseg>")
-    for i, (lat, lon) in enumerate(coords):
-        eles = f"<ele>{elev[i]}</ele>" if i < len(elev) else ""
-        tms = f"<time>{tm[i].isoformat()}</time>" if i < len(tm) else ""
-        lines.append(f'      <trkpt lat="{lat}" lon="{lon}">{eles}{tms}</trkpt>')
-    lines.extend(["    </trkseg>", "  </trk>", "</gpx>"])
+
+    if waypoints:
+        for wp in waypoints:
+            ele = f"<ele>{wp.ele}</ele>" if wp.ele is not None else ""
+            lines.append(f'    <wpt lat="{wp.lat}" lon="{wp.lon}">{ele}</wpt>')
+
+    for track in tracks:
+        lines.append("  <trk>")
+        lines.append("    <trkseg>")
+        for pt in track:
+            ele = f"<ele>{pt.ele}</ele>" if pt.ele is not None else ""
+            if pt.time is not None:
+                t = f"<time>{(base_time + timedelta(seconds=pt.time)).isoformat()}</time>"
+            else:
+                t = ""
+            lines.append(f'      <trkpt lat="{pt.lat}" lon="{pt.lon}">{ele}{t}</trkpt>')
+        lines.append("    </trkseg>")
+        lines.append("  </trk>")
+
+    lines.append("</gpx>")
 
     with open(gpx_path, "w") as f:
         f.write("\n".join(lines))
