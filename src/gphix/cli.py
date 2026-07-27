@@ -2,24 +2,12 @@
 
 import argparse
 import sys
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 from typing import TextIO
 
 from .gpx import GPX, GPXStats
-
-
-def _output_result(
-    data: bytes, summary_lines: list[str], output: Path, out: TextIO
-) -> None:
-    """Write GPX data and optional summary to the target output."""
-    if output == Path("-"):
-        print(data.decode(), end="", file=out)
-    else:
-        with open(output, "wb") as f:
-            f.write(data)
-        for line in summary_lines:
-            print(line, file=out)
 
 
 def _add_output_arg(parser: argparse.ArgumentParser) -> None:
@@ -31,6 +19,19 @@ def _add_output_arg(parser: argparse.ArgumentParser) -> None:
         default="-",
         help="Output GPX file path (use - for stdout)",
     )
+
+
+def _add_input_arg(parser: argparse.ArgumentParser) -> None:
+    """Add the shared input file argument to a parser."""
+    parser.add_argument("input", type=Path, help="Input GPX file (use - for stdin)")
+
+
+def _load_gpx(source: Path, stdin: BytesIO | None = None) -> GPX:
+    """Load a GPX from a file path or stdin (when *source* is ``Path("-")``)."""
+    if source == Path("-"):
+        raw = stdin or BytesIO(sys.stdin.buffer.read())
+        return GPX(raw)
+    return GPX(source)
 
 
 def main(
@@ -49,7 +50,7 @@ def main(
     stats_parser = subparsers.add_parser(
         "stats", help="Display statistics for a GPX file"
     )
-    stats_parser.add_argument("gpx_file", type=Path, help="Path to the GPX file")
+    _add_input_arg(stats_parser)
 
     # --- merge ---
     merge_parser = subparsers.add_parser(
@@ -64,9 +65,7 @@ def main(
     trim_parser = subparsers.add_parser(
         "trim", help="Trim points from the start and end of tracks"
     )
-    trim_parser.add_argument(
-        "input", type=Path, help="Input GPX file (use - for stdin)"
-    )
+    _add_input_arg(trim_parser)
     _add_output_arg(trim_parser)
     trim_parser.add_argument(
         "--start",
@@ -92,10 +91,23 @@ def main(
         help="Treat --start/--end as metres (default: percent)",
     )
 
+    # --- insert ---
+    insert_parser = subparsers.add_parser(
+        "insert",
+        help="Insert new points as a new track in a GPX file",
+    )
+    _add_input_arg(insert_parser)
+    _add_output_arg(insert_parser)
+    insert_parser.add_argument(
+        "points",
+        nargs="+",
+        help="Points as comma-separated values: 'lat,lon' or 'lat,lon,ele' or 'lat,lon,ele,time'",
+    )
+
     parsed = parser.parse_args(args)
 
     if parsed.command == "stats":
-        _cmd_stats(parsed.gpx_file, out)
+        _cmd_stats(parsed.input, out, stdin)
     elif parsed.command == "merge":
         _cmd_merge(parsed.input_files, parsed.output, out)
     elif parsed.command == "trim":
@@ -109,64 +121,61 @@ def main(
             out,
             stdin,
         )
+    elif parsed.command == "insert":
+        _cmd_insert(
+            parsed.input,
+            parsed.output,
+            parsed.points,
+            out,
+            stdin,
+        )
     else:
         parser.print_help(out)
 
 
-def _cmd_stats(gpx_file: Path, out: TextIO) -> None:
+def _cmd_stats(input_file: Path, out: TextIO, stdin: BytesIO | None = None) -> None:
     """Handle the ``stats`` subcommand."""
-    gpx = GPX(gpx_file)
+    gpx = _load_gpx(input_file, stdin)
     stats = gpx.stats()
 
-    print(f"File: {gpx_file.name}", file=out)
-    for line in _format_stats(stats):
-        print(line, file=out)
+    print(f"File: {input_file.name}", file=out)
+    _print_stats(stats, out, prefix="")
 
 
 def _cmd_merge(input_files: list[Path], output: Path, out: TextIO) -> None:
     """Handle the ``merge`` subcommand."""
     merged = GPX.merge(input_files)  # type: ignore
-    data = merged.to_string().encode()
-    summary = []
     if output != Path("-"):
-        stats = merged.stats()
-        summary = [f"Merged {len(input_files)} file(s) → {output}"]
-        summary.extend(_format_stats(stats, prefix="  "))
-    _output_result(data, summary, output, out)
-
-
-def _format_stats(stats: GPXStats, prefix: str = "") -> list[str]:
-    """Format common stats into lines with the given *prefix*.
-
-    Args:
-        stats: The statistics to format.
-        prefix: Leading whitespace for each line (e.g. ``"  "`` for summaries).
-    """
-    lines: list[str] = [
-        f"{prefix}Points: {stats.points}",
-        f"{prefix}Tracks: {stats.tracks}",
-        f"{prefix}Distance: {_format_distance(stats.distance)}",
-    ]
-    if stats.duration is not None:
-        lines.append(f"{prefix}Duration: {_format_duration(stats.duration)}")
+        merged.write(output)
+        print(f"Merged {len(input_files)} file(s) → {output}", file=out)
+        _print_stats(merged.stats(), out)
     else:
-        lines.append(f"{prefix}Duration: N/A")
+        out.write(merged.to_string())
+
+
+def _print_stats(stats: GPXStats, out: TextIO, prefix: str = "  ") -> None:
+    """Print common stats lines to *out* with the given *prefix*."""
+    print(f"{prefix}Points: {stats.points}", file=out)
+    print(f"{prefix}Tracks: {stats.tracks}", file=out)
+    print(f"{prefix}Distance: {_format_distance(stats.distance)}", file=out)
+    print(f"{prefix}Duration: {_format_duration(stats.duration)}", file=out)
     if stats.start_time and stats.end_time:
-        lines.append(f"{prefix}Start: {stats.start_time.isoformat()}")
-        lines.append(f"{prefix}End: {stats.end_time.isoformat()}")
+        print(f"{prefix}Start: {stats.start_time.isoformat()}", file=out)
+        print(f"{prefix}End: {stats.end_time.isoformat()}", file=out)
     else:
-        lines.append(f"{prefix}Time: N/A")
+        print(f"{prefix}Time: N/A", file=out)
     if stats.min_elev is not None and stats.max_elev is not None:
-        lines.append(
-            f"{prefix}Elevation: {stats.min_elev:.0f} – {stats.max_elev:.0f} m"
+        print(
+            f"{prefix}Elevation: {stats.min_elev:.0f} – {stats.max_elev:.0f} m",
+            file=out,
         )
     else:
-        lines.append(f"{prefix}Elevation: N/A")
-    lines.append(
+        print(f"{prefix}Elevation: N/A", file=out)
+    print(
         f"{prefix}BBox: ({stats.min_lat:.6f}, {stats.min_lon:.6f}) – "
-        f"({stats.max_lat:.6f}, {stats.max_lon:.6f})"
+        f"({stats.max_lat:.6f}, {stats.max_lon:.6f})",
+        file=out,
     )
-    return lines
 
 
 def _format_distance(meters: float) -> str:
@@ -190,6 +199,67 @@ def _format_duration(seconds: float) -> str:
     return " ".join(parts)
 
 
+def _parse_points(
+    point_strs: list[str],
+) -> list[tuple[float, float, float | None, datetime | None]]:
+    """Parse comma-separated point strings into (lat, lon, ele?, time?) tuples.
+
+    Each string can have 2–4 fields:
+        lat,lon
+        lat,lon,ele
+        lat,lon,ele,time
+        lat,lon,time
+    """
+    points: list[tuple[float, float, float | None, datetime | None]] = []
+    for s in point_strs:
+        parts = s.split(",")
+        if len(parts) < 2:
+            raise ValueError(
+                f"Invalid point format: '{s}'. Expected 'lat,lon[,ele[,time]]'"
+            )
+        lat = float(parts[0])
+        lon = float(parts[1])
+        ele = None
+        time: datetime | None = None
+        if len(parts) >= 3:
+            try:
+                ele = float(parts[2])
+            except ValueError:
+                ele = None
+                time = datetime.fromisoformat(parts[2])
+        if len(parts) >= 4 and time is None:
+            time = datetime.fromisoformat(parts[3])
+        points.append((lat, lon, ele, time))
+    return points
+
+
+def _cmd_insert(
+    input_file: Path,
+    output: Path,
+    tokens: list[str],
+    out: TextIO,
+    stdin: BytesIO | None = None,
+) -> None:
+    """Handle the ``insert`` subcommand."""
+    gpx = _load_gpx(input_file, stdin)
+
+    parsed = _parse_points(tokens)
+    track = gpx.add_track()
+    for lat, lon, ele, time in parsed:
+        pt = track.add_point(lat, lon)
+        if ele is not None:
+            pt.elevation = ele
+        if time is not None:
+            pt.time = time
+
+    if output != Path("-"):
+        gpx.write(output)
+        print(f"Inserted {len(parsed)} point(s) into {input_file} → {output}", file=out)
+        _print_stats(gpx.stats(), out)
+    else:
+        out.write(gpx.to_string())
+
+
 def _cmd_trim(
     input_file: Path,
     output: Path,
@@ -201,21 +271,21 @@ def _cmd_trim(
     stdin: BytesIO | None = None,
 ) -> None:
     """Handle the ``trim`` subcommand."""
-    if input_file == Path("-"):
-        gpx = GPX(stdin or BytesIO(sys.stdin.buffer.read()))
-    else:
-        gpx = GPX(input_file)
+    gpx = _load_gpx(input_file, stdin)
 
-    orig_stats = gpx.stats()
     if not by_time and not by_distance:
         start /= 100
         end /= 100
     trimmed = gpx.trim(start=start, end=end, by_time=by_time, by_distance=by_distance)
-    new_stats = trimmed.stats()
 
-    removed = orig_stats.points - new_stats.points
-    dist_saved = orig_stats.distance - new_stats.distance
-    summary: list[str] = [f"Trimmed {input_file} → {output}"]
-    summary.extend(_format_stats(new_stats, prefix="  "))
-    summary.append(f"  Removed: {removed} points ({_format_distance(dist_saved)})")
-    _output_result(trimmed.to_string().encode(), summary, output, out)
+    if output != Path("-"):
+        orig_stats = gpx.stats()
+        new_stats = trimmed.stats()
+        removed = orig_stats.points - new_stats.points
+        dist_saved = orig_stats.distance - new_stats.distance
+        trimmed.write(output)
+        print(f"Trimmed {input_file} → {output}", file=out)
+        _print_stats(new_stats, out)
+        print(f"Removed: {removed} points ({_format_distance(dist_saved)})", file=out)
+    else:
+        out.write(trimmed.to_string())

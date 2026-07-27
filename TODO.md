@@ -3,7 +3,7 @@
 - [x] Stats
 - [x] Merge GPX files
 - [x] Trim ends of track
-- [ ] Insert new start or stop point
+- [x] Insert new points/tracks
 - [ ] Add missing elevation data
   - [ ] From DEM file
   - [ ] From reference GPX
@@ -12,7 +12,7 @@
   - [x] Stats
   - [x] Merge
   - [x] Trim
-  - [ ] Insert
+  - [x] Insert
   - [ ] Elevation
   - [ ] Fill
 - [ ] Web UI
