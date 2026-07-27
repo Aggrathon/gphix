@@ -129,7 +129,7 @@ def test_track_builder(tmp_path):
     base = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
 
     gpx = GPX(None)
-    gpx.add_track().add_points([(1.0, 2.0), (3.0, 4.0)])
+    gpx.add_track().add_points((1.0, 2.0), (3.0, 4.0))
     pt = gpx.add_track().add_point(5.0, 6.0)
     pt.elevation = 123.4
     pt.time = base

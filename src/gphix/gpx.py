@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import itertools
 import xml.etree.ElementTree as ET
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from io import BytesIO
@@ -85,16 +85,20 @@ class TrackBuilder:
         self._namespaces = namespaces
         self._uri = uri
 
-    def add_point(self, lat: float, lon: float) -> GPXPoint:
+    def add_point(self, lat: float, lon: float, ele: float | None = None) -> GPXPoint:
         """Add a point to this track segment and return its wrapper."""
         pt = ET.SubElement(
             self._segment, f"{{{self._uri}}}trkpt", lat=str(lat), lon=str(lon)
         )
-        return GPXPoint(pt, self._uri, self._namespaces)
+        point = GPXPoint(pt, self._uri, self._namespaces)
+        if ele is not None:
+            point.elevation = ele
+        return point
 
-    def add_points(self, coords: Iterable[tuple[float, float]]) -> TrackBuilder:
-        for lat, lon in coords:
-            self.add_point(lat, lon)
+    def add_points(self, *coords: tuple[float, float] | tuple[float, float, float]) -> TrackBuilder:
+        """Call add_point multiple times."""
+        for coord in coords:
+            self.add_point(*coord)
         return self
 
 

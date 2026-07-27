@@ -5,7 +5,7 @@
 - [x] Trim ends of track
 - [x] Insert new points/tracks
 - [ ] Add missing elevation data
-  - [ ] From DEM file
+  - [x] From DEM file
   - [ ] From reference GPX
 - [ ] Fill gaps from reference GPX
 - [ ] CLI

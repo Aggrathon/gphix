@@ -7,7 +7,10 @@ authors = [
     { name = "Aggrathon", email = "antonbjo@gmail.com" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "rasterio>=1.5.0",
+    "scipy>=1.18.0",
+]
 
 [project.scripts]
 gphix = "gphix.cli:main"
@@ -19,6 +22,7 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "coverage>=7.15.2",
+    "numpy>=2.5.1",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "ruff>=0.16.0",
