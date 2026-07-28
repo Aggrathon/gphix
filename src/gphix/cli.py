@@ -7,6 +7,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import TextIO
 
+from .elevation import add_elevation_to_gpx
 from .gpx import GPX, GPXStats
 
 
@@ -104,6 +105,30 @@ def main(
         help="Points as comma-separated values: 'lat,lon' or 'lat,lon,ele' or 'lat,lon,ele,time'",
     )
 
+    # --- elevation ---
+    elev_parser = subparsers.add_parser(
+        "elevation", help="Add elevation data from external sources to a GPX file"
+    )
+    _add_input_arg(elev_parser)
+    _add_output_arg(elev_parser)
+    elev_parser.add_argument(
+        "elevation_sources",
+        type=Path,
+        nargs="+",
+        help="Elevation sources (GPX files, DEM files, or archives)",
+    )
+    elev_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing elevation data",
+    )
+    elev_parser.add_argument(
+        "--radius",
+        type=float,
+        default=50.0,
+        help="Max perpendicular distance (m) to GPX track edge (default: 50)",
+    )
+
     parsed = parser.parse_args(args)
 
     if parsed.command == "stats":
@@ -126,6 +151,16 @@ def main(
             parsed.input,
             parsed.output,
             parsed.points,
+            out,
+            stdin,
+        )
+    elif parsed.command == "elevation":
+        _cmd_elevation(
+            parsed.input,
+            parsed.elevation_sources,
+            parsed.output,
+            parsed.overwrite,
+            parsed.radius,
             out,
             stdin,
         )
@@ -231,6 +266,31 @@ def _parse_points(
             time = datetime.fromisoformat(parts[3])
         points.append((lat, lon, ele, time))
     return points
+
+
+def _cmd_elevation(
+    input_file: Path,
+    elevation_sources: list[Path],
+    output: Path,
+    overwrite: bool,
+    radius: float,
+    out: TextIO,
+    stdin: BytesIO | None = None,
+) -> None:
+    """Handle the ``elevation`` subcommand."""
+    gpx = _load_gpx(input_file, stdin)
+
+    updates = add_elevation_to_gpx(
+        gpx, elevation_sources, overwrite=overwrite, radius=radius
+    )
+
+    if output != Path("-"):
+        gpx.write(output)
+        print(f"Added elevation to {input_file} → {output}", file=out)
+        _print_stats(gpx.stats(), out)
+        print(f"Updated: {updates} point(s)", file=out)
+    else:
+        out.write(gpx.to_string())
 
 
 def _cmd_insert(

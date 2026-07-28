@@ -3,6 +3,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from os import PathLike
 
+import numpy as np
+import pytest
+
 
 @dataclass(slots=True)
 class Point:
@@ -70,3 +73,44 @@ def create_gpx_file(
 
     with open(gpx_path, "w") as f:
         f.write("\n".join(lines))
+
+
+def create_tif_point(path, latitude: float, longitude: float, elevation: float = 0.0):
+    grid = np.full((1, 1), elevation, dtype=np.float32)
+    create_tif_grid(
+        path, longitude - 0.01, latitude - 0.01, longitude + 0.01, latitude + 0.01, grid
+    )
+
+
+def create_tif_grid(
+    path,
+    west: float,
+    south: float,
+    east: float,
+    north: float,
+    elevations: np.ndarray | float,
+):
+    import rasterio
+    from rasterio.transform import from_bounds
+
+    if np.isscalar(elevations):
+        elevations = np.full((3, 3), elevations, dtype=np.float32)
+    height, width = elevations.shape
+    transform = from_bounds(west, south, east, north, width, height)
+    with rasterio.open(
+        str(path),
+        "w",
+        driver="GTiff",
+        height=height,
+        width=width,
+        count=1,
+        dtype=elevations.dtype,
+        crs="EPSG:4326",
+        transform=transform,
+        nodata=-9999,
+    ) as dst:
+        dst.write(elevations, 1)
+
+
+def no_np_warn():
+    return pytest.mark.filterwarnings("ignore:Setting the shape:DeprecationWarning")

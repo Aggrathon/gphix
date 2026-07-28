@@ -4,16 +4,16 @@
 - [x] Merge GPX files
 - [x] Trim ends of track
 - [x] Insert new points/tracks
-- [ ] Add missing elevation data
+- [x] Add missing elevation data
   - [x] From DEM file
-  - [ ] From reference GPX
+  - [x] From reference GPX
 - [ ] Fill gaps from reference GPX
 - [ ] CLI
   - [x] Stats
   - [x] Merge
   - [x] Trim
   - [x] Insert
-  - [ ] Elevation
+  - [x] Elevation
   - [ ] Fill
 - [ ] Web UI
   - [ ] Graphs

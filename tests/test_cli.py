@@ -11,7 +11,7 @@ from pathlib import Path
 from gphix.cli import _format_distance, _format_duration, main
 from gphix.gpx import GPX
 
-from .utils import Point, create_gpx_file
+from .utils import Point, create_gpx_file, create_tif_grid, no_np_warn
 
 
 def _file_to_stdin(path: Path) -> BytesIO:
@@ -102,6 +102,10 @@ def test_main_help():
     output = buf.getvalue()
     assert "gphix" in output
     assert "stats" in output
+    assert "merge" in output
+    assert "trim" in output
+    assert "insert" in output
+    assert "elevation" in output
 
 
 def test_cmd_merge(tmp_path):
@@ -252,3 +256,50 @@ def test_insert_stdin_file(tmp_path):
 
     assert new_points[3].elevation == 300.0
     assert new_points[3].time is not None
+
+
+@no_np_warn()
+def test_cmd_elevation(tmp_path):
+    """Test elevation subcommand: add elevation to GPX from a DEM file."""
+    input_path = tmp_path / "input.gpx"
+    create_gpx_file(
+        input_path, [Point(48.8, 2.2), Point(48.85, 2.25), Point(48.9, 2.3)]
+    )
+    dem_path = tmp_path / "dem.tif"
+    create_tif_grid(dem_path, 2.1, 48.75, 2.4, 48.95, 125.0)
+    out_path = tmp_path / "elevated.gpx"
+
+    buf = StringIO()
+    main(["elevation", str(input_path), str(dem_path), "-o", str(out_path)], out=buf)
+    output = buf.getvalue()
+    assert "Added elevation to" in output
+    assert "Updated: 3 point(s)" in output
+
+    gpx = GPX(out_path)
+    points = list(gpx.points())
+    for pt in points:
+        assert pt.elevation is not None
+        assert 120 < pt.elevation < 130
+
+
+def test_cmd_elevation_overwrite_and_stdout(tmp_path):
+    """Test elevation --overwrite flag, stdin input, and stdout output."""
+    input_path = tmp_path / "input.gpx"
+    create_gpx_file(input_path, [Point(48.8, 2.2, 10.0), Point(48.85, 2.25, 20.0)])
+    ref_path = tmp_path / "ref.gpx"
+    create_gpx_file(ref_path, [Point(48.8, 2.2, 100.0), Point(48.85, 2.25, 200.0)])
+
+    buf1 = StringIO()
+    main(["elevation", "-", str(ref_path)], out=buf1, stdin=_file_to_stdin(input_path))
+    gpx1 = GPX(BytesIO(buf1.getvalue().encode()))
+    assert gpx1.stats().min_elev == 10.0
+
+    buf2 = StringIO()
+    main(
+        ["elevation", "-", str(ref_path), "--overwrite"],
+        out=buf2,
+        stdin=_file_to_stdin(input_path),
+    )
+    assert "<?xml" in buf2.getvalue()
+    gpx2 = GPX(BytesIO(buf2.getvalue().encode()))
+    assert gpx2.stats().min_elev == 100.0

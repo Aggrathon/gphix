@@ -3,49 +3,14 @@ import zipfile
 
 import numpy as np
 import pytest
-import rasterio
-from rasterio.transform import from_bounds
-
-pytestmark = pytest.mark.filterwarnings("ignore:Setting the shape:DeprecationWarning")
 
 from gphix.elevation import ElevationDataManager, GPXInterpolator, add_elevation_to_gpx
 from gphix.gpx import GPX
 
-from .utils import Point, create_gpx_file
+from .utils import Point, create_gpx_file, create_tif_grid, create_tif_point, no_np_warn
 
 
-def create_tif_point(path, latitude: float, longitude: float, elevation: float = 0.0):
-    grid = np.full((1, 1), elevation, dtype=np.float32)
-    create_tif_grid(
-        path, longitude - 0.01, latitude - 0.01, longitude + 0.01, latitude + 0.01, grid
-    )
-
-
-def create_tif_grid(
-    path,
-    west: float,
-    south: float,
-    east: float,
-    north: float,
-    elevations: np.ndarray,
-):
-    height, width = elevations.shape
-    transform = from_bounds(west, south, east, north, width, height)
-    with rasterio.open(
-        str(path),
-        "w",
-        driver="GTiff",
-        height=height,
-        width=width,
-        count=1,
-        dtype=elevations.dtype,
-        crs="EPSG:4326",
-        transform=transform,
-        nodata=-9999,
-    ) as dst:
-        dst.write(elevations, 1)
-
-
+@no_np_warn()
 def test_query_elevation_from_dem_file(tmp_path):
     """Test querying elevation data from a single DEM file."""
     elevation = 130.0
@@ -55,6 +20,7 @@ def test_query_elevation_from_dem_file(tmp_path):
         assert mgr.elevation(48.9, 2.3) == pytest.approx(elevation, abs=0.1)
 
 
+@no_np_warn()
 def test_query_multiple_dem_files(tmp_path):
     """Test querying elevation from multiple DEM files."""
     tif_path = tmp_path / "a.tif"
@@ -66,6 +32,7 @@ def test_query_multiple_dem_files(tmp_path):
         assert mgr.elevation(51.5, -0.1) == pytest.approx(125.0, abs=0.1)
 
 
+@no_np_warn()
 def test_interpolate_elevations(tmp_path):
     """Test slinear interpolation with a multi-pixel DEM."""
     elevations = np.array(
@@ -91,6 +58,7 @@ def test_interpolate_elevations(tmp_path):
 
 
 @pytest.mark.parametrize("fmt", ["zip", "tar"])
+@no_np_warn()
 def test_query_archive(fmt, tmp_path):
     """Test querying elevation from ZIP and TAR archives."""
     a_path = tmp_path / "a.tif"
@@ -115,6 +83,7 @@ def test_query_archive(fmt, tmp_path):
             assert mgr.elevation(51.5, -0.1) == 124.0
 
 
+@no_np_warn()
 def test_add_elevation_partial_coverage(tmp_path):
     """Test that points outside DEM coverage keep their original values."""
     gpx = GPX()
@@ -131,6 +100,7 @@ def test_add_elevation_partial_coverage(tmp_path):
     assert points[1].elevation is None
 
 
+@no_np_warn()
 def test_add_elevation_multiple_tracks(tmp_path):
     """Test adding elevation across multiple tracks in a GPX file."""
     gpx = GPX()
@@ -149,6 +119,7 @@ def test_add_elevation_multiple_tracks(tmp_path):
     assert all(p.elevation is None for p in segments[1].points())
 
 
+@no_np_warn()
 def test_add_elevation_mixed_existing_and_missing(tmp_path):
     """Test overwrite with partial coverage: some points have existing elevation,
     some are missing, and some are outside DEM coverage."""
@@ -174,6 +145,7 @@ def test_add_elevation_mixed_existing_and_missing(tmp_path):
     assert points[2].elevation is None
 
 
+@no_np_warn()
 def test_add_elevation_with_stats(tmp_path):
     """Test adding elevation and verifying stats reflect the changes."""
     gpx = GPX()
@@ -240,6 +212,7 @@ def test_gpx_reference_provider_multiple_tracks():
     assert provider.elevation(51.5, -0.1) == 50.0
 
 
+@no_np_warn()
 def test_elevation_manager_gpx_first_then_dem(tmp_path):
     """ElevationDataManager uses GPX first, DEM as fallback."""
     gpx_path = tmp_path / "ref.gpx"
