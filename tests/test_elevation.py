@@ -8,8 +8,10 @@ from rasterio.transform import from_bounds
 
 pytestmark = pytest.mark.filterwarnings("ignore:Setting the shape:DeprecationWarning")
 
-from gphix.elevation import ElevationDataManager, add_elevation_to_gpx
+from gphix.elevation import ElevationDataManager, GPXInterpolator, add_elevation_to_gpx
 from gphix.gpx import GPX
+
+from .utils import Point, create_gpx_file
 
 
 def create_tif_point(path, latitude: float, longitude: float, elevation: float = 0.0):
@@ -191,3 +193,119 @@ def test_add_elevation_with_stats(tmp_path):
     assert stats_after.min_elev < stats_after.max_elev
     assert stats_after.tracks == 1
     assert stats_after.distance > stats_before.distance
+
+
+def test_gpx_reference_provider_exact_vertex():
+    """GPX reference returns elevation of an exact vertex."""
+    gpx = GPX()
+    gpx.add_track().add_points((48.8, 2.3, 100.0), (48.9, 2.3, 200.0))
+    provider = GPXInterpolator([gpx], radius=50.0)
+    assert provider.elevation(48.8, 2.3) == 100.0
+    assert provider.elevation(48.9, 2.3) == 200.0
+
+
+def test_gpx_reference_provider_perpendicular():
+    """GPX reference projects onto a diagonal segment."""
+    gpx = GPX()
+    gpx.add_track().add_points((48.8, 2.3, 100.0), (48.81, 2.31, 200.0))
+    provider = GPXInterpolator([gpx], radius=50.0)
+    result = provider.elevation(48.805 + 0.0004, 2.305)
+    assert result is not None
+    assert 140 < result < 160
+
+
+def test_gpx_reference_provider_outside_cutoff():
+    """GPX reference returns None when perpendicular distance exceeds cutoff."""
+    gpx = GPX()
+    gpx.add_track().add_points((48.8, 2.3, 100.0), (48.9, 2.3, 200.0))
+    provider = GPXInterpolator([gpx], radius=50.0)
+    assert provider.elevation(49.5, 2.3) is None
+
+
+def test_gpx_reference_provider_no_elevation_vertices():
+    """GPX reference skips edges where either endpoint lacks elevation."""
+    gpx = GPX()
+    gpx.add_track().add_points((48.8, 2.3), (48.9, 2.3, 200.0))
+    provider = GPXInterpolator([gpx], radius=50.0)
+    assert provider.elevation(48.8, 2.3) is None
+
+
+def test_gpx_reference_provider_multiple_tracks():
+    """GPX reference merges multiple tracks and picks closest."""
+    gpx = GPX()
+    gpx.add_track().add_points((48.8, 2.3, 100.0), (48.8, 2.4, 150.0))
+    gpx.add_track().add_points((51.5, -0.1, 50.0), (51.5, -0.2, 60.0))
+    provider = GPXInterpolator([gpx], radius=50.0)
+    assert provider.elevation(48.8, 2.3) == 100.0
+    assert provider.elevation(51.5, -0.1) == 50.0
+
+
+def test_elevation_manager_gpx_first_then_dem(tmp_path):
+    """ElevationDataManager uses GPX first, DEM as fallback."""
+    gpx_path = tmp_path / "ref.gpx"
+    create_gpx_file(gpx_path, [Point(48.8, 2.3, 100.0), Point(48.9, 2.4, 200.0)])
+    tif_path = tmp_path / "dem.tif"
+    create_tif_point(tif_path, 48.9, 2.3, 130.0)
+
+    with ElevationDataManager([gpx_path, tif_path]) as mgr:
+        assert mgr.elevation(48.8, 2.3) == 100.0
+        assert mgr.elevation(48.9, 2.3) == 130.0
+
+
+def test_elevation_manager_gpx_in_zip(tmp_path):
+    """GPX files inside a zip archive are extracted and used as reference."""
+    gpx_path = tmp_path / "ref.gpx"
+    create_gpx_file(gpx_path, [Point(48.8, 2.3, 999.0), Point(48.81, 2.31, 888.0)])
+    tif_path = tmp_path / "dem.tif"
+    create_tif_point(tif_path, 48.8, 2.3, 130.0)
+
+    archive_path = tmp_path / "mixed.zip"
+    with zipfile.ZipFile(archive_path, "w") as zf:
+        zf.write(tif_path, "dem.tif")
+        zf.write(gpx_path, "ref.gpx")
+
+    with ElevationDataManager([archive_path]) as mgr:
+        assert mgr.elevation(48.8, 2.3) == 999.0
+        result = mgr.elevation(48.805, 2.305)
+        assert result is not None
+        assert result > 500
+        result2 = mgr.elevation(48.95, 2.3)
+        assert result2 is None
+
+
+def test_add_elevation_from_gpx_reference(tmp_path):
+    """Test that GPX references are used for elevation assignment."""
+    gpx = GPX()
+    gpx.add_track().add_points((48.8, 2.3), (48.85, 2.35), (48.9, 2.4))
+
+    ref_path = tmp_path / "ref.gpx"
+    create_gpx_file(
+        ref_path,
+        [
+            Point(48.8, 2.3, 100.0),
+            Point(48.85, 2.35, 150.0),
+            Point(48.9, 2.4, 200.0),
+        ],
+    )
+
+    updates = add_elevation_to_gpx(gpx, [ref_path])
+    assert updates == 3
+
+    points = list(gpx.points())
+    assert points[0].elevation == 100.0
+    assert points[1].elevation == 150.0
+    assert points[2].elevation == 200.0
+
+
+def test_gpx_reference_radius_parameter(tmp_path):
+    """Test that the radius parameter controls how far GPX covers."""
+    gpx = GPX()
+    gpx.add_track().add_points((48.8, 2.3, 100.0), (48.9, 2.3, 200.0))
+
+    provider_large = GPXInterpolator([gpx], radius=10000.0)
+    result = provider_large.elevation(48.85, 2.3)
+    assert result == pytest.approx(150.0, abs=0.5)
+
+    provider_small = GPXInterpolator([gpx], radius=10.0)
+    result = provider_small.elevation(48.85, 2.301)
+    assert result is None

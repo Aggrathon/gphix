@@ -1,27 +1,38 @@
+from __future__ import annotations
+
+import itertools
 import math
-import os
-import shutil
 import tarfile
-import tempfile
 import zipfile
 from collections.abc import Sequence
+from dataclasses import dataclass
+from io import BytesIO
 from os import PathLike
 
-from gphix.gpx import GPX
+from gphix.gpx import GPX, GPXPoint
+from gphix.utils import METERS_PER_DEG, haversine
 
 
 class Lazy:
     """Static class for lazily loading heavy packages."""
 
+    _loaded = False
+
     @classmethod
     def load(cls):
-        """Make sure rasterio and scipy are imported."""
+        """Make sure rasterio, scipy, and numpy are imported."""
+        if cls._loaded:
+            return
+        cls._loaded = True
+
+        import numpy
         import rasterio
         from rasterio.crs import CRS
         from rasterio.transform import rowcol
         from rasterio.warp import transform
         from rasterio.windows import Window
         from scipy.interpolate import interpn
+        from scipy.spatial import KDTree
 
         cls.open = rasterio.open
         cls.CRS = CRS
@@ -29,150 +40,234 @@ class Lazy:
         cls.transform = transform
         cls.Window = Window
         cls.interpn = interpn
+        cls.KDTree = KDTree
+        cls.np = numpy
 
 
-def open_dem_files(
+GEOSPATIAL_EXT = (".tif", ".tiff", ".img", ".jp2", ".ras", ".dat", ".hgt")
+GPX_EXT = (".gpx",)
+ZIP_EXT = (".zip",)
+TAR_EXT = (".tar", ".gz", ".tgz", ".tar.bz2", ".tar.xz")
+
+
+def open_elevation_sources(
     paths: Sequence[PathLike], extract: bool = False
-) -> tuple[list, list[str]]:
-    """Open DEM files, expanding archives and extracting archive items if needed.
+) -> tuple[list, list[GPX]]:
+    """Open elevation sources (expanding archives).
 
     Args:
-        paths: List of paths to DEM files. Supports regular geospatial files
-               (e.g., .tif, .hgt, .img) and archives (zip, tar) containing
-               geospatial files.
-        extract: If True, force extract archive contents to temporary
-                 directories before opening. Required on platforms where
-                 archive:// URLs are not supported.
+        paths: List of paths to elevation files. Supports regular geospatial files
+            (e.g. .tif, .hgt), GPX files, and archives (zip, tar) containing either type.
+        extract: Required on platforms where archive:// URLs are not supported.
 
     Returns:
-        Tuple of (list of opened rasterio DEM file handles, list of temp
-        directory paths that were created for extracted files). Callers are
-        responsible for closing file handles and cleaning up temp directories.
+        Tuple of (rasterio DEM file handles and GPX:s). Callers are responsible for closing rasterio handles.
     """
     Lazy.load()
 
-    dem_files: list = []
-    temp_dirs: list[str] = []
-    geospatial_ext = (".tif", ".tiff", ".img", ".jp2", ".ras", ".dat", ".hgt")
+    dems: list = []
+    gpxs: list[GPX] = []
     for path in paths:
         path_str = str(path)
-        path_lower = path_str.lower()
+        pl = path_str.lower()
+        if pl.endswith(GEOSPATIAL_EXT):
+            dems.append(Lazy.open(path))
+        elif pl.endswith(GPX_EXT):
+            gpxs.append(GPX(path))
+        elif pl.endswith(ZIP_EXT):
+            with zipfile.ZipFile(path) as archive:
+                for name in archive.namelist():
+                    nl = name.lower()
+                    if nl.endswith(GPX_EXT):
+                        gpxs.append(GPX(BytesIO(archive.read(name))))
+                    elif nl.endswith(GEOSPATIAL_EXT):
+                        if extract:
+                            dems.append(Lazy.open(BytesIO(archive.read(name))))
+                        else:
+                            dems.append(Lazy.open(f"zip+file://{path_str}!{name}"))
+        elif pl.endswith(TAR_EXT):
+            with tarfile.open(path) as archive:
+                for item in archive:
+                    if not item.isfile():
+                        continue
+                    nl = item.name.lower()
+                    if nl.endswith(GPX_EXT):
+                        gpxs.append(GPX(archive.extractfile(item)))
+                    elif nl.endswith(GEOSPATIAL_EXT):
+                        if extract:
+                            dems.append(Lazy.open(archive.extractfile(item)))
+                        else:
+                            dems.append(Lazy.open(f"tar+file://{path_str}!{item.name}"))
+        else:
+            dems.append(Lazy.open(path_str))
 
-        if path_lower.endswith(geospatial_ext):
-            dem_file = Lazy.open(path)
-            dem_files.append(dem_file)
-            continue
-
-        if _try_open_zip(path_str, geospatial_ext, extract, dem_files, temp_dirs):
-            continue
-
-        if _try_open_tar(path_str, geospatial_ext, extract, dem_files, temp_dirs):
-            continue
-
-        dem_file = Lazy.open(path_str)
-        dem_files.append(dem_file)
-
-    return dem_files, temp_dirs
+    return dems, gpxs
 
 
-def _try_open_zip(
-    path_str: str,
-    geospatial_ext: tuple[str, ...],
-    extract: bool,
-    dem_files: list,
-    temp_dirs: list[str],
-) -> bool:
-    """Try to open *path_str* as a ZIP archive.
+class GPXInterpolator:
+    """Builds a spatial index over GPX track edges for elevation lookups.
 
-    Returns ``True`` if the file is a valid ZIP (regardless of whether it
-    contained geospatial items), ``False`` otherwise.
+    All GPX files are merged into a single index. Each edge (pair of adjacent vertices
+    with elevation) is indexed. The search finds the nearest edge (perpendicular
+    distance) and interpolates the elevation.
+
+    Args:
+        gpxs: List of GPX objects or paths to GPX files.
+        radius: Maximum perpendicular distance from a query point
+                to a GPX track edge for the GPX to claim the elevation.
     """
-    try:
-        with zipfile.ZipFile(path_str) as archive:
-            items = [
-                item
-                for item in archive.namelist()
-                if item.lower().endswith(geospatial_ext)
-            ]
-            if items:
-                if extract:
-                    tmpdir = tempfile.mkdtemp()
-                    temp_dirs.append(tmpdir)
-                    for item in items:
-                        dem_file = Lazy.open(archive.extract(item, tmpdir))
-                        dem_files.append(dem_file)
-                else:
-                    for item in items:
-                        dem_file = Lazy.open(f"zip+file://{path_str}!{item}")
-                        dem_files.append(dem_file)
-            return True
-    except (zipfile.BadZipFile, OSError):
-        return False
+
+    def __init__(self, gpxs: Sequence[GPX | PathLike], radius: float = 50.0):
+        self.radius = radius
+        self._chunks: list[Edge] = []
+        self._tree = None
+
+        edges = []
+        for src in gpxs:
+            gpx: GPX = src if isinstance(src, GPX) else GPX(src)
+            for seg in gpx.segments(sort=False, routes=True):
+                for p1, p2 in itertools.pairwise(seg.points()):
+                    if p1.elevation is not None and p2.elevation is not None:
+                        edges.append(Edge.new(p1, p2))
+
+        if not edges:
+            return
+
+        # Compute projection reference (mean lat/lon of all edge midpoints).
+        # We project chunk midpoints into a local equirectangular meter grid
+        # so that KDTree distances are meaningful in metres.
+        avg_lat = sum(e.lat for e in edges) / len(edges)
+        avg_lon = sum(e.lon for e in edges) / len(edges)
+        self._ref_lat = avg_lat
+        self._ref_lon = avg_lon
+        self._ref_met = math.cos(math.radians(avg_lat)) * METERS_PER_DEG
+
+        chunk_size = max(1.0, 2 * radius)
+        chunk_coords: list[list[float]] = []
+        for edge in edges:
+            num_chunks = max(1, round(math.sqrt(edge.dv2) / chunk_size))
+            for i in range(num_chunks):
+                mid_t = (i + 0.5) / num_chunks
+                mid_lat = edge.lat + mid_t * edge.dlat
+                mid_lon = edge.lon + mid_t * edge.dlon
+                mid_x = (mid_lon - avg_lon) * self._ref_met
+                mid_y = (mid_lat - avg_lat) * METERS_PER_DEG
+                chunk_coords.append([mid_x, mid_y])
+                self._chunks.append(edge)
+
+        if self._chunks:
+            self._tree = Lazy.KDTree(Lazy.np.array(chunk_coords))
+
+    def elevation(self, latitude: float, longitude: float) -> float | None:
+        """Return elevation from the closest GPX track edge, or ``None``."""
+        if not self._chunks or self._tree is None:
+            return None
+
+        # Project query point into the same meter grid used for the tree.
+        qx = (longitude - self._ref_lon) * self._ref_met
+        qy = (latitude - self._ref_lat) * METERS_PER_DEG
+        hits = self._tree.query_ball_point(
+            [qx, qy], r=max(1.0, 2 * self.radius), workers=-1
+        )
+        best_dist = math.inf
+        best_elev = None
+        for chunk_idx in hits:
+            edge = self._chunks[chunk_idx]
+            perp_dist, t = edge.perpendicular(latitude, longitude)
+            if perp_dist <= self.radius and perp_dist < best_dist:
+                best_dist = perp_dist
+                best_elev = edge.interp_elevation(t)
+        return best_elev
 
 
-def _try_open_tar(
-    path_str: str,
-    geospatial_ext: tuple[str, ...],
-    extract: bool,
-    dem_files: list,
-    temp_dirs: list[str],
-) -> bool:
-    """Try to open *path_str* as a tar archive.
+@dataclass(slots=True)
+class Edge:
+    """A line segment between two GPX vertices with known elevations."""
 
-    Returns ``True`` if the file is a valid tar, ``False`` otherwise.
-    """
-    try:
-        with tarfile.open(path_str) as archive:
-            items = [
-                item
-                for item in archive.getnames()
-                if item.lower().endswith(geospatial_ext)
-            ]
-            if items:
-                if extract:
-                    tmpdir = tempfile.mkdtemp()
-                    temp_dirs.append(tmpdir)
-                    for item in items:
-                        archive.extract(item, tmpdir, filter="data")
-                        dem_file = Lazy.open(os.path.join(tmpdir, item))
-                        dem_files.append(dem_file)
-                else:
-                    for item in items:
-                        dem_file = Lazy.open(f"tar+file://{path_str}!{item}")
-                        dem_files.append(dem_file)
-            return True
-    except (tarfile.TarError, OSError):
-        return False
+    lat: float
+    lon: float
+    ele: float
+    dlat: float
+    dlon: float
+    dele: float
+    dx: float
+    dy: float
+    dv2: float
+
+    @classmethod
+    def new(cls, p1: GPXPoint, p2: GPXPoint) -> Edge:
+        lat = p1.latitude
+        lon = p1.longitude
+        ele = p1.elevation
+        dlat = p2.latitude - lat
+        dlon = p2.longitude - lon
+        dele = p2.elevation - ele
+
+        # Project to equirectangular meters for geometric computations
+        dx = dlon * math.cos(math.radians(lat + dlat / 2)) * METERS_PER_DEG
+        dy = dlat * METERS_PER_DEG
+        dv2 = dx * dx + dy * dy
+        return Edge(lat, lon, ele, dlat, dlon, dele, dx, dy, dv2)
+
+    def perpendicular(self, lat: float, lon: float) -> tuple[float, float]:
+        """Return (perpendicular_distance_meters, fraction_along_segment).
+
+        The fraction ``t`` is clamped to [0, 1] so that the closest point
+        always lies on the segment itself.
+        """
+        if self.dv2 == 0:
+            dist = haversine(lat, lon, self.lat, self.lon)
+            return dist, 0.0
+
+        w_lat = (lat - self.lat) * METERS_PER_DEG
+        lon_meters = math.cos(math.radians((self.lat + lat) / 2)) * METERS_PER_DEG
+        w_lon = (lon - self.lon) * lon_meters
+
+        t = (w_lat * self.dy + w_lon * self.dx) / self.dv2
+        t = max(0.0, min(1.0, t))
+
+        closest_lat = self.lat + t * self.dlat
+        closest_lon = self.lon + t * self.dlon
+        dist = haversine(lat, lon, closest_lat, closest_lon)
+        return dist, t
+
+    def interp_elevation(self, t: float) -> float:
+        """Linearly interpolate elevation at fraction *t* along the segment."""
+        return self.ele + t * self.dele
 
 
 class ElevationDataManager:
-    """Context manager for DEM files to simplify elevation queries.
+    """Context manager for elevation sources (DEM files and GPX references).
 
     Args:
-        dem_paths: List of paths to DEM files.
-                Supports both regular files and zip/tar archives with multiple files.
-                Also supports archive:// URLs (e.g., zip:///path/to/file.zip!dataset.tif).
-        extract: If True, force extract archive contents before processing (on platforms where archive:// URLs are not working).
-        verbose: If True, print information about the data source.
+        paths: List of paths to elevation files. Supports regular geospatial files
+            (e.g. .tif, .hgt), GPX files, and archives (zip, tar) containing either type.
+        radius: Maximum perpendicular distance from a query point
+                to a GPX track edge for the GPX to claim the elevation.
+        extract: Required on platforms where archive:// URLs are not supported.
     """
 
-    def __init__(self, dem_paths: Sequence[PathLike], extract: bool = False):
+    def __init__(
+        self, paths: Sequence[PathLike], radius: float = 50.0, extract: bool = False
+    ):
         Lazy.load()
-
-        self.dem_paths = dem_paths
+        self.paths = paths
         self.dem_files: list = []
-        self.temp_dirs: list[str] = []
         self.extract = extract
         self.crs = Lazy.CRS.from_epsg(4326)
+        self.radius = radius
+        self.gpx_provider: GPXInterpolator | None = None
 
     def __enter__(self):
-        self.dem_files, self.temp_dirs = open_dem_files(self.dem_paths, self.extract)
+        self.dem_files, gpxs = open_elevation_sources(self.paths, self.extract)
+        if gpxs:
+            self.gpx_provider = GPXInterpolator(gpxs, self.radius)
         return self
 
     def elevation(self, latitude: float, longitude: float) -> float | None:
-        """Query elevation for a point using DEM files.
+        """Query elevation for a point.
 
-        Estimates elevation by finding the closest DEM pixels and performing interpolation.
+        GPX reference files are queried first; DEM is used as fallback.
 
         Args:
             latitude: Latitude of the point.
@@ -181,6 +276,11 @@ class ElevationDataManager:
         Returns:
             Elevation in meters, or None if unavailable.
         """
+        if self.gpx_provider:
+            value = self.gpx_provider.elevation(latitude, longitude)
+            if value is not None:
+                return value
+
         for i, dem_file in enumerate(self.dem_files):
             height, width = dem_file.shape
             lon, lat = Lazy.transform(self.crs, dem_file.crs, [longitude], [latitude])
@@ -217,30 +317,31 @@ class ElevationDataManager:
         for dem_file in self.dem_files:
             dem_file.close()
         self.dem_files.clear()
-        for tmpdir in self.temp_dirs:
-            if os.path.isdir(tmpdir):
-                shutil.rmtree(tmpdir)
-        self.temp_dirs.clear()
+        self.gpx_provider = None
 
 
 def add_elevation_to_gpx(
     gpx: GPX,
-    dem_paths: Sequence[PathLike],
+    paths: Sequence[PathLike],
     overwrite: bool = False,
     extract: bool = False,
+    radius: float = 50.0,
 ) -> int:
-    """Add elevation data to a GPX file using DEM files.
+    """Add elevation data to a GPX file.
 
     Args:
-        dem_paths: List of paths to DEM files.
+        paths: List of paths to elevation files. Supports regular geospatial files
+            (e.g. .tif, .hgt), GPX files, and archives (zip, tar) containing either type.
         overwrite: If True, overwrite existing elevation data.
-        extract: If True, extract archive contents before processing.
+        extract: Required on platforms where archive:// URLs are not supported.
+        radius: Maximum perpendicular distance from a query point
+                to a GPX track edge for the GPX to claim the elevation.
 
     Returns:
-        The number of points with elevation updates
+        The number of points with elevation updates.
     """
     point_updates = 0
-    with ElevationDataManager(dem_paths, extract) as elevation:
+    with ElevationDataManager(paths, radius, extract) as elevation:
         for point in gpx.points():
             if overwrite or point.elevation is None:
                 value = elevation.elevation(point.latitude, point.longitude)

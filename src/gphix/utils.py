@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from _typeshed import SupportsRichComparisonT
 
-_EARTH_RADIUS_M = 6371000
+EARTH_RADIUS_M = 6371000.0
+METERS_PER_DEG = 111320.0
 
 
 def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -21,7 +22,7 @@ def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
     )
     c = 2 * math.asin(math.sqrt(a))
-    return _EARTH_RADIUS_M * c
+    return EARTH_RADIUS_M * c
 
 
 def distance(coords: Iterable[tuple[float, float, float | None]]) -> float:

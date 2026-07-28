@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from os import PathLike
 
 
-@dataclass
+@dataclass(slots=True)
 class Point:
     lat: float
     lon: float

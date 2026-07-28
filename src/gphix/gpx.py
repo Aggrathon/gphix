@@ -12,7 +12,7 @@ from os import PathLike
 from .utils import distance, update_bounds
 
 
-@dataclass
+@dataclass(slots=True)
 class GPXSegment:
     """A GPX track segment or route with its parent and point elements."""
 
@@ -58,7 +58,7 @@ class GPXSegment:
             self.segment.remove(target.element)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class GPXStats:
     """Computed statistics for a GPX file."""
 
@@ -95,14 +95,14 @@ class TrackBuilder:
             point.elevation = ele
         return point
 
-    def add_points(self, *coords: tuple[float, float] | tuple[float, float, float]) -> TrackBuilder:
+    def add_points(self, *coords: tuple[float, ...]) -> TrackBuilder:
         """Call add_point multiple times."""
         for coord in coords:
             self.add_point(*coord)
         return self
 
 
-@dataclass
+@dataclass(slots=True)
 class GPXPoint:
     """Wrapper for a GPX point (trkpt, wpt, or rtept)."""
 
