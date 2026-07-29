@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import itertools
 import math
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator
 from math import radians
 from typing import TYPE_CHECKING
 
@@ -44,9 +44,17 @@ def distance(coords: Iterable[tuple[float, float, float | None]]) -> float:
 def update_bounds(
     minv: SupportsRichComparisonT | None,
     maxv: SupportsRichComparisonT | None,
-    values: Sequence[SupportsRichComparisonT],
+    values: Iterable[SupportsRichComparisonT],
 ) -> tuple[SupportsRichComparisonT | None, SupportsRichComparisonT | None]:
     if values:
         maxv = max(max(values), maxv) if maxv is not None else max(values)
         minv = min(min(values), minv) if minv is not None else min(values)
     return minv, maxv
+
+
+def last[T](iterator: Iterator[T] | Iterable[T]) -> None | T:
+    """Return the last item of an iterator."""
+    item = None
+    for i in iterator:
+        item = i
+    return item

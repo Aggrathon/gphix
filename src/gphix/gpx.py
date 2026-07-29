@@ -9,7 +9,7 @@ from datetime import datetime
 from io import BytesIO
 from os import PathLike
 
-from .utils import distance, update_bounds
+from .utils import distance, last, update_bounds
 
 
 @dataclass(slots=True)
@@ -21,33 +21,30 @@ class GPXSegment:
     uri: str
     namespaces: dict[str, str]
     point_tag: str = "trkpt"
-    _time: datetime | bool | None = None
 
-    @property
-    def time(self) -> datetime | bool:
-        """Timestamp of the first point in this segment, computed lazily and cached."""
-        if self._time is None:
-            if (pt := self.first_point()) and pt.time is not None:
-                self._time = pt.time
-            else:
-                self._time = False
-        return self._time
+    def time(self) -> datetime | None:
+        """Return the time of the first point in this segment."""
+        if fp := self.first_point():
+            return fp.time
+        return None
 
     def first_point(self) -> GPXPoint | None:
         """Return the first point in this segment, or None if empty."""
-        if (
-            pt := self.segment.find(f"gpx:{self.point_tag}", self.namespaces)
-        ) is not None:
+        pt = self.segment.find(f"gpx:{self.point_tag}", self.namespaces)
+        if pt is not None:
             return GPXPoint(pt, self.uri, self.namespaces)
         return None
 
-    def __len__(self) -> int:
-        """Number of points in this segment."""
-        return len(self.segment.findall(f"gpx:{self.point_tag}", self.namespaces))
+    def last_point(self) -> GPXPoint | None:
+        """Return the last point in this segment, or None if empty."""
+        pt = last(self.segment.iterfind(f"gpx:{self.point_tag}", self.namespaces))
+        if pt is not None:
+            return GPXPoint(pt, self.uri, self.namespaces)
+        return None
 
     def points(self) -> Iterator[GPXPoint]:
         """Yield `GPXPoint` for each point in this segment."""
-        for pt in self.segment.findall(f"gpx:{self.point_tag}", self.namespaces):
+        for pt in self.segment.iterfind(f"gpx:{self.point_tag}", self.namespaces):
             yield GPXPoint(pt, self.uri, self.namespaces)
 
     def remove(self, target: GPXPoint | None):
@@ -145,6 +142,9 @@ class GPXPoint:
             t = ET.SubElement(self.element, f"{{{self.uri}}}time")
         t.text = value.isoformat()
 
+    def __bool__(self) -> bool:
+        return True
+
 
 class GPX:
     """Lightweight GPX parser."""
@@ -188,8 +188,13 @@ class GPX:
     def points(self) -> Iterator[GPXPoint]:
         """Generator yielding all points (trkpt, wpt, rtept) in the GPX file."""
         for tag in ["trkpt", "wpt", "rtept"]:
-            for node in self.root.findall(f".//gpx:{tag}", self.namespaces):
+            for node in self.root.iterfind(f".//gpx:{tag}", self.namespaces):
                 yield GPXPoint(node, self.uri, self.namespaces)
+
+    def waypoints(self) -> Iterator[GPXPoint]:
+        """Generator yielding all points (trkpt, wpt, rtept) in the GPX file."""
+        for node in self.root.iterfind(".//gpx:wpt", self.namespaces):
+            yield GPXPoint(node, self.uri, self.namespaces)
 
     def to_string(self) -> str:
         """Serialize the GPX to an XML string."""
@@ -212,7 +217,7 @@ class GPX:
         bounds_elev = None, None
         bounds_lat = None, None
         bounds_lon = None, None
-        for seg in self.segments(sort=False, routes=True):
+        for seg in self.segments(sorted=False, routes=True):
             times = []
             lats = []
             lons = []
@@ -236,6 +241,13 @@ class GPX:
                 bounds_elev = update_bounds(
                     *bounds_elev, [e for e in elev if e is not None]
                 )
+        wpts = [(p.latitude, p.longitude, p.elevation) for p in self.waypoints()]
+        if wpts:
+            bounds_lat = update_bounds(*bounds_lat, (l for l, _, _ in wpts))
+            bounds_lon = update_bounds(*bounds_lon, (l for _, l, _ in wpts))
+            bounds_elev = update_bounds(
+                *bounds_elev, (e for _, _, e in wpts if e is not None)
+            )
 
         track_count = len(self.root.findall("gpx:trk", self.namespaces))
 
@@ -254,29 +266,78 @@ class GPX:
             tracks=track_count,
         )
 
-    def segments(self, sort: bool = True, routes: bool = False) -> list[GPXSegment]:
+    def segments(self, sorted: bool = True, routes: bool = False) -> list[GPXSegment]:
         """Return ``GPXSegment`` objects.
 
         Args:
-            sort: Sort segments temporally (segments without timestamps first).
+            sort: Sort segments temporally, bridging gaps with time-less
+                segments by geographic proximity.
             routes: Also include route segments (``rte`` elements).
         """
-        segments: list[GPXSegment] = []
-        for trk in self.root.findall("gpx:trk", self.namespaces):
-            for seg in trk.findall("gpx:trkseg", self.namespaces):
-                segments.append(GPXSegment(trk, seg, self.uri, self.namespaces))
+        out = []
+        timed = []
+        untimed = []
+        for trk in self.root.iterfind("gpx:trk", self.namespaces):
+            for seg in trk.iterfind("gpx:trkseg", self.namespaces):
+                segment = GPXSegment(trk, seg, self.uri, self.namespaces)
+                if first := segment.first_point():
+                    if not sorted:
+                        out.append(segment)
+                    elif time := first.time:
+                        timed.append((time, first, segment))
+                    else:
+                        untimed.append((first, segment))
 
         if routes:
-            for rte in self.root.findall("gpx:rte", self.namespaces):
-                segments.append(
-                    GPXSegment(self.root, rte, self.uri, self.namespaces, "rtept")
-                )
+            for rte in self.root.iterfind("gpx:rte", self.namespaces):
+                segment = GPXSegment(self.root, rte, self.uri, self.namespaces, "rtept")
+                if first := segment.first_point():
+                    if not sorted:
+                        out.append(segment)
+                    elif time := first.time:
+                        timed.append((time, first, segment))
+                    else:
+                        untimed.append((first, segment))
 
-        if sort:
-            with_time = sorted([s for s in segments if s.time], key=lambda s: s.time)
-            without_time = [s for s in segments if not s.time]
-            return without_time + with_time
-        return segments
+        if len(timed) + len(untimed) == 0:
+            return out
+
+        if not timed:
+            return [seg for _, seg in untimed]
+        timed.sort()
+        if not untimed:
+            return [seg for _, _, seg in timed]
+
+        fixed = [
+            (
+                (first.latitude, first.longitude, first.elevation),
+                (last.latitude, last.longitude, last.elevation),
+                segment,
+            )
+            for _, first, segment in timed
+            if (last := segment.last_point())
+        ]
+        for first, segment in untimed:
+            last = segment.last_point() or first
+
+            sf = (first.latitude, first.longitude, first.elevation)
+            sl = (last.latitude, last.longitude, last.elevation)
+            best_cost, best_idx = float("inf"), 0
+
+            if not fixed:
+                fixed.append((sf, sl, segment))
+                continue
+            for i in range(len(fixed) + 1):
+                if i == 0:
+                    cost = distance((sl, fixed[0][0])) * 2
+                elif i == len(fixed):
+                    cost = distance((fixed[-1][1], sf)) * 2
+                else:
+                    cost = distance((fixed[i - 1][1], sf)) + distance((sl, fixed[i][0]))
+                if cost < best_cost:
+                    best_cost, best_idx = cost, i
+            fixed.insert(best_idx, (sf, sl, segment))
+        return [seg for *_, seg in fixed]
 
     def trim(
         self,

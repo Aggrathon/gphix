@@ -1,8 +1,15 @@
 from datetime import UTC, datetime, timedelta
 
 from gphix.gpx import GPX
+from gphix.utils import last
 
 from .utils import Point, create_gpx_file
+
+
+def test_last():
+    assert last(range(3)) == 2
+    assert last("asd") == "d"
+    assert last([1, "23", 6]) == 6
 
 
 def test_stats_basic(tmp_path):
@@ -122,6 +129,39 @@ def test_gpx_class_parse(tmp_path):
     gpx.write(output_gpx)
     gpx2 = GPX(output_gpx)
     assert gpx2.to_string() == gpx.to_string()
+
+
+def test_segments_sort_by_geographic_gap(tmp_path):
+    """Time-less segments are bridged into geographic gaps."""
+    gpx_path = tmp_path / "gap_fill.gpx"
+    create_gpx_file(
+        gpx_path,
+        [Point(10.0, 20.0, time=0)],
+        [Point(30.0, 40.0, time=3600)],
+        [Point(50.0, 60.0, time=7200)],
+    )
+
+    gpx = GPX(gpx_path)
+    lats = [p.latitude for s in gpx.segments() if (p := s.first_point())]
+    assert lats == [10.0, 30.0, 50.0]
+
+    gpx.add_track().add_points((20.0, 30.0), (25.0, 30.0))
+    lats = [p.latitude for s in gpx.segments() if (p := s.first_point())]
+    assert lats == [10.0, 20.0, 30.0, 50.0]
+
+    gpx.add_track()
+    assert len(gpx.segments()) == 4
+
+    gpx.add_track().add_points((25.0, 35.0), (30.0, 35.0))
+    lats = [p.latitude for s in gpx.segments() if (p := s.first_point())]
+    assert lats == [10.0, 20.0, 25.0, 30.0, 50.0]
+
+    create_gpx_file(
+        gpx_path, [Point(10.0, 20.0)], [Point(30.0, 40.0)], [Point(50.0, 60.0)]
+    )
+    gpx = GPX(gpx_path)
+    lats = [p.latitude for s in gpx.segments() if (p := s.first_point())]
+    assert lats == [10.0, 30.0, 50.0]
 
 
 def test_track_builder(tmp_path):

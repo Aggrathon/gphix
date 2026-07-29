@@ -125,7 +125,7 @@ class GPXInterpolator:
         edges = []
         for src in gpxs:
             gpx: GPX = src if isinstance(src, GPX) else GPX(src)
-            for seg in gpx.segments(sort=False, routes=True):
+            for seg in gpx.segments(sorted=False, routes=True):
                 for p1, p2 in itertools.pairwise(seg.points()):
                     if p1.elevation is not None and p2.elevation is not None:
                         edges.append(Edge.new(p1, p2))
