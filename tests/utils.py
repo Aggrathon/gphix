@@ -6,6 +6,8 @@ from os import PathLike
 import numpy as np
 import pytest
 
+from gphix.gpx import GPX
+
 
 @dataclass(slots=True)
 class Point:
@@ -13,6 +15,41 @@ class Point:
     lon: float
     ele: float | None = None
     time: float | None = None  # seconds offset from base_time
+
+
+def create_gpx(
+    *tracks: Sequence[Point],
+    waypoints: Sequence[Point] | None = None,
+    base_time: datetime = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+    metadata: str = "",
+) -> GPX:
+    """Create a minimal GPX for testing.
+
+    Args:
+        *tracks: Zero or more sequences of `Point`. Each sequence becomes a
+            `<trk><trkseg>`. When no tracks are given, a single track with
+            the default 3 coordinates is created.
+        waypoints: Zero or more `Point` objects, each becomes a ``<wpt>``.
+        base_time: Base datetime used when converting ``Point.time`` (seconds
+            offset) to ISO 8601 timestamps.
+        metadata: Raw XML to insert inside a ``<metadata>`` element (empty = none).
+    """
+    default = [Point(-48.8, 2.2), Point(51.4, -0.8), Point(40.1, -74.6)]
+    gpx = GPX(None)
+    for track in tracks or (default,):
+        tr = gpx.add_track()
+        for p in track:
+            pt = tr.add_point(p.lat, p.lon, p.ele)
+            if p.time is not None:
+                pt.time = base_time + timedelta(seconds=p.time)
+    for wpt in waypoints or ():
+        if wpt.ele is None:
+            gpx.add_waypoint(wpt.lat, wpt.lon)
+        else:
+            gpx.add_waypoint(wpt.lat, wpt.lon).elevation = wpt.ele
+    if metadata:
+        pass  # TODO metadata
+    return gpx
 
 
 def create_gpx_file(
@@ -26,21 +63,15 @@ def create_gpx_file(
 
     Args:
         gpx_path: Output file path.
-        *tracks: Zero or more sequences of :class:`Point`. Each sequence becomes
+        *tracks: Zero or more sequences of `Point`. Each sequence becomes
             a ``<trk><trkseg>``.  When no tracks are given, a single track with
             the default 3 coordinates is created.
-        waypoints: Zero or more :class:`Point` objects, each becomes a ``<wpt>``.
+        waypoints: Zero or more `Point` objects, each becomes a ``<wpt>``.
         base_time: Base datetime used when converting ``Point.time`` (seconds
             offset) to ISO 8601 timestamps.
         metadata: Raw XML to insert inside a ``<metadata>`` element (empty = none).
     """
-    defaults = [
-        Point(48.8584, 2.2945),
-        Point(51.5074, -0.1278),
-        Point(40.7128, -74.006),
-    ]
-    if not tracks:
-        tracks = (defaults,)
+    default = [Point(48.8584, 2.2945), Point(51.5074, -0.1278), Point(40.7128, -74.006)]
 
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
@@ -56,7 +87,7 @@ def create_gpx_file(
             ele = f"<ele>{wp.ele}</ele>" if wp.ele is not None else ""
             lines.append(f'    <wpt lat="{wp.lat}" lon="{wp.lon}">{ele}</wpt>')
 
-    for track in tracks:
+    for track in tracks or (default,):
         lines.append("  <trk>")
         lines.append("    <trkseg>")
         for pt in track:

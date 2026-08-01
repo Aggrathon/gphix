@@ -5,9 +5,13 @@
 - [x] Trim ends of track
 - [x] Insert new points/tracks
 - [x] Add missing elevation data
-  - [x] From DEM file
-  - [x] From reference GPX
-- [ ] Fill gaps from reference GPX
+- [x] Fill gaps from reference GPX
+  - [x] Identify gaps (enough time and distance between segments)
+  - [x] Select gaps
+  - [x] Find matching start & end from reference GPX
+  - [x] Insert points (copied from part of a track in the reference)
+  - [ ] Adjust fill path with new closest points
+  - [ ] Find fill paths inside segments
 - [ ] CLI
   - [x] Stats
   - [x] Merge
@@ -15,7 +19,16 @@
   - [x] Insert
   - [x] Elevation
   - [ ] Fill
+    - [ ] List gaps
+    - [ ] Fill (selected) gaps
 - [ ] Web UI
   - [ ] Graphs
+    - [ ] Topdown
+    - [ ] Line (time vs distance, time vs elevation, etc.)
+    - [ ] Selectable points
   - [ ] Stats
-  - [ ] Pyodide
+    - [ ] Whole GPX
+    - [ ] Selected point
+  - [ ] UI for the functions
+    - [ ] Preview on the graphs
+  - [ ] Pyodide (to use the library)
