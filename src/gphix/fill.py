@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from itertools import pairwise
 
 from gphix.gpx import GPX, GPXPoint
-from gphix.utils import LocalKDTree, cum_distance, distance
+from gphix.utils import LocalKDTree, cum_distance, distance, project_to_edge
 
 
 @dataclass(slots=True)
@@ -85,27 +85,62 @@ class ReferencePaths:
             for pt in seg.points()
         ]
 
+    def _project_nearest(self, idx: int, point: RefPoint) -> tuple[RefPoint, int]:
+        """Return (projected_point, direction) for the closest edge near idx.
+
+        direction: -1 = edge before idx, 0 = idx itself, +1 = edge after idx.
+        """
+        mid = self._ref_pts[idx]
+        best_proj = mid
+        best_dist = mid.distance(point)
+        best_dir = 0
+        pa = (mid.lat, mid.lon, mid.ele)
+        pp = (point.lat, point.lon)
+        for direction in (-1, 1):
+            if 0 <= idx + direction < len(self._ref_pts):
+                other = self._ref_pts[idx + direction]
+                if other.segment == mid.segment:
+                    pb = (other.lat, other.lon, other.ele)
+                    proj_coords = project_to_edge(pa, pb, pp)
+                    proj = RefPoint(mid.segment, *proj_coords)
+                    d = proj.distance(point)
+                    if d < best_dist:
+                        best_dist, best_proj, best_dir = d, proj, direction
+        return best_proj, best_dir
+
     def find_path(self, gap: Gap) -> list[RefPoint] | None:
         """Find matching path in the reference GPX."""
         start = self._tree.query(gap.start_point.lat, gap.start_point.lon)
         end = self._tree.query(gap.end_point.lat, gap.end_point.lon)
-        spoint = self._ref_pts[start]
-        epoint = self._ref_pts[end]
         if self._ref_pts[start].segment != self._ref_pts[end].segment:
             # Different segments
             # TODO: find closest points in segments and choose better path
             return None
-        # TODO find the closest edge and create the closes point as start and end
-        sdist = spoint.distance(gap.start_point)
-        edist = epoint.distance(gap.end_point)
-        if sdist + edist > gap.distance:
+
+        proj_start, dir_start = self._project_nearest(start, gap.start_point)
+        proj_end, dir_end = self._project_nearest(end, gap.end_point)
+        dist = proj_start.distance(gap.start_point) + proj_end.distance(gap.end_point)
+        if dist > gap.distance:
             return None
+
         if start == end:
-            return [self._ref_pts[start]]
+            if dir_start == dir_end:
+                if dir_start == 0:
+                    return [proj_start]
+                return [proj_start, proj_end]
+            return [proj_start, self._ref_pts[start], proj_end]
+
+        path = [proj_start]
         if start < end:
-            return self._ref_pts[start : end + 1]
+            start += int(dir_start >= 0)
+            end += int(dir_end > 0)
+            path.extend(self._ref_pts[start:end])
         else:
-            return list(reversed(self._ref_pts[end : start + 1]))
+            start += int(dir_start > 0)
+            end += int(dir_end >= 0)
+            path.extend(reversed(self._ref_pts[end:start]))
+        path.append(proj_end)
+        return path
 
 
 def interpolate_time_linear(points: list[RefPoint], start: datetime, end: datetime):

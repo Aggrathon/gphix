@@ -11,7 +11,7 @@ from os import PathLike
 from typing import Callable
 
 from gphix.gpx import GPX, GPXPoint
-from gphix.utils import METERS_PER_DEG, LocalKDTree, haversine
+from gphix.utils import LocalKDTree, haversine, project_to_edge
 
 GEOSPATIAL_EXT = (".tif", ".tiff", ".img", ".jp2", ".ras", ".dat", ".hgt")
 GPX_EXT = (".gpx",)
@@ -151,14 +151,10 @@ class GPXInterpolator:
         chunk_size = max(1.0, 2 * radius)
         pts: list[tuple[float, float]] = []
         for edge in edges:
-            num_chunks = max(1, round(math.sqrt(edge.dv2) / chunk_size))
+            num_chunks = max(1, round(edge.length() / chunk_size))
             for i in range(num_chunks):
-                mid_t = (i + 0.5) / num_chunks
-                mid_lat = edge.lat + mid_t * edge.dlat
-                mid_lon = edge.lon + mid_t * edge.dlon
-                pts.append((mid_lat, mid_lon))
+                pts.append(edge.lerp((i + 0.5) / num_chunks))
                 self._chunks.append(edge)
-
         self._tree = LocalKDTree(pts)
 
     def elevation(self, latitude: float, longitude: float) -> float | None:
@@ -173,10 +169,10 @@ class GPXInterpolator:
         best_elev = None
         for chunk_idx in hits:
             edge = self._chunks[chunk_idx]
-            perp_dist, t = edge.perpendicular(latitude, longitude)
+            perp_dist, elev = edge.closest(latitude, longitude)
             if perp_dist <= self.radius and perp_dist < best_dist:
                 best_dist = perp_dist
-                best_elev = edge.interp_elevation(t)
+                best_elev = elev
         return best_elev
 
 
@@ -184,56 +180,29 @@ class GPXInterpolator:
 class Edge:
     """A line segment between two GPX vertices with known elevations."""
 
-    lat: float
-    lon: float
-    ele: float
-    dlat: float
-    dlon: float
-    dele: float
-    dx: float
-    dy: float
-    dv2: float
+    point1: tuple[float, float, float]
+    point2: tuple[float, float, float]
 
     @classmethod
     def new(cls, p1: GPXPoint, p2: GPXPoint) -> Edge:
-        lat = p1.latitude
-        lon = p1.longitude
-        ele = p1.elevation
-        dlat = p2.latitude - lat
-        dlon = p2.longitude - lon
-        dele = p2.elevation - ele
+        return Edge(
+            (p1.latitude, p1.longitude, p1.elevation),
+            (p2.latitude, p2.longitude, p2.elevation),
+        )
 
-        # Project to equirectangular meters for geometric computations
-        dx = dlon * math.cos(math.radians(lat + dlat / 2)) * METERS_PER_DEG
-        dy = dlat * METERS_PER_DEG
-        dv2 = dx * dx + dy * dy
-        return Edge(lat, lon, ele, dlat, dlon, dele, dx, dy, dv2)
+    def closest(self, lat: float, lon: float) -> tuple[float, float]:
+        """Return (distance, elevation) of the closest point on the edge."""
+        (lat2, lon2, ele2) = project_to_edge(self.point1, self.point2, (lat, lon))
+        dist = haversine(lat2, lon2, lat, lon)
+        return dist, ele2
 
-    def perpendicular(self, lat: float, lon: float) -> tuple[float, float]:
-        """Return (perpendicular_distance_meters, fraction_along_segment).
+    def length(self) -> float:
+        return haversine(*self.point1[:-1], *self.point2[:-1])
 
-        The fraction ``t`` is clamped to [0, 1] so that the closest point
-        always lies on the segment itself.
-        """
-        if self.dv2 == 0:
-            dist = haversine(lat, lon, self.lat, self.lon)
-            return dist, 0.0
-
-        w_lat = (lat - self.lat) * METERS_PER_DEG
-        lon_meters = math.cos(math.radians((self.lat + lat) / 2)) * METERS_PER_DEG
-        w_lon = (lon - self.lon) * lon_meters
-
-        t = (w_lat * self.dy + w_lon * self.dx) / self.dv2
-        t = max(0.0, min(1.0, t))
-
-        closest_lat = self.lat + t * self.dlat
-        closest_lon = self.lon + t * self.dlon
-        dist = haversine(lat, lon, closest_lat, closest_lon)
-        return dist, t
-
-    def interp_elevation(self, t: float) -> float:
-        """Linearly interpolate elevation at fraction *t* along the segment."""
-        return self.ele + t * self.dele
+    def lerp(self, t: float) -> tuple[float, float]:
+        lat1, lon1, _ = self.point1
+        lat2, lon2, _ = self.point2
+        return lat1 + t * (lat2 - lat1), lon1 + t * (lon2 - lon1)
 
 
 class ElevationDataManager:

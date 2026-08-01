@@ -108,6 +108,25 @@ def update_bounds(
     return minv, maxv
 
 
+def project_to_edge(
+    p1: tuple[float, float, float | None],
+    p2: tuple[float, float, float | None],
+    pt: tuple[float, float],
+) -> tuple[float, float, float | None]:
+    """Return the closest point on segment p1-p2 to point pt, with interpolated elevation."""
+    x1, y1, e1 = p1
+    x2, y2, e2 = p2
+    x, y = pt
+    dx, dy = x2 - x1, y2 - y1
+    denom = dx * dx + dy * dy
+    if denom == 0.0:
+        return x1, y1, e1
+    t = ((x - x1) * dx + (y - y1) * dy) / denom
+    t = max(0.0, min(1.0, t))
+    e = (e1 + t * (e2 - e1)) if e1 is not None and e2 is not None else None
+    return (x1 + t * dx, y1 + t * dy, e)
+
+
 def last[T](iterator: Iterator[T] | Iterable[T]) -> None | T:
     """Return the last item of an iterator."""
     item = None

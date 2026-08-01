@@ -70,28 +70,61 @@ def test_find_gaps_single_track():
     assert find_gaps(gpx, min_distance=200.0) == []
 
 
-@pytest.mark.parametrize("dir", ["forward", "reverse"])
-def test_find_path(dir: str):
-    """Reference GPX direction is opposite."""
-    p = [
-        Point(48.9, 2.1),
+@pytest.mark.parametrize(
+    "start_dir,end_dir,reverse",
+    [(s, e, d) for s in (-1, 0, 1) for e in (-1, 0, 1) for d in (False, True)],
+    ids=[
+        f"{s}_{e}_{d}"
+        for s in ("before", "at", "after")
+        for e in ("before", "at", "after")
+        for d in ["forward", "reverse"]
+    ],
+)
+def test_find_path(start_dir: int, end_dir: int, reverse: bool):
+    """Test edge projection and path assembly in various configurations."""
+    ref_pts = [
+        Point(48.5, 2.5),
         Point(49.0, 2.0),
         Point(49.5, 1.5),
         Point(50.0, 1.0),
         Point(50.5, 0.5),
     ]
-    if dir == "reverse":
-        p = list(reversed(p))
-    r = create_gpx(p)
-    g = create_gpx([Point(48.95, 2.05)], [Point(50.2, 0.8)])
-    (gap,) = find_gaps(g)
-    rp = ReferencePaths(r)
-    path = rp.find_path(gap)
-    assert abs(path[0].lat - 48.95) < 0.5
-    assert abs(path[-1].lat - 50.2) < 0.5
-    assert len(path) == 3
-    for p1, p2 in itertools.pairwise(path):
-        assert p2.lat > p1.lat
+    start_pt = RefPoint(0, 49.0 + start_dir * 0.05, 2.0)
+    end_pt = RefPoint(0, 50.0 + end_dir * 0.05, 1.0)
+    if reverse:
+        ref_pts = list(reversed(ref_pts))
+    matcher = ReferencePaths(create_gpx(ref_pts))
+    gap = Gap(start_pt, end_pt, 1e6)
+    length = 3 + int(start_dir < 0) + int(end_dir > 0)
+    path = matcher.find_path(gap)
+    assert path is not None
+    assert len(path) == length
+    lats = [p.lat for p in path]
+    assert lats == sorted(lats)
+
+
+@pytest.mark.parametrize(
+    "reverse,single",
+    [(r, s) for r in (False, True) for s in (False, True)],
+    ids=[f"{s}_{r}" for r in ("forward", "reverse") for s in ("multi", "single")],
+)
+def test_find_path_same_index(reverse: bool, single: bool):
+    """Both gap endpoints map to the same index but project to different edges."""
+    pts = [Point(0.0, 0.0), Point(10.0, 0.0), Point(10.1, 10.0)]
+    if reverse:
+        pts = reversed(pts)
+    matcher = ReferencePaths(create_gpx(pts))
+    if single:
+        gap = Gap(RefPoint(0, 10.0, -2.0), RefPoint(0, 11.0, -0.5), 1e6)
+    else:
+        gap = Gap(RefPoint(0, 9.5, 0.0), RefPoint(0, 10.0, 0.5), 1e6)
+    path = matcher.find_path(gap)
+    assert path is not None
+    assert len(path) == (1 if single else 3)
+    assert path[len(path) // 2].lat == 10.0
+    assert path[len(path) // 2].lon == 0.0
+    lats = [p.lat for p in path]
+    assert lats == sorted(lats)
 
 
 def test_find_match_different_tracks():
@@ -102,15 +135,6 @@ def test_find_match_different_tracks():
     g = create_gpx([Point(48.8, 2.2)], [Point(51.5, -0.1)])
     (gap,) = find_gaps(g)
     assert ReferencePaths(r).find_path(gap) is None
-
-
-def test_find_path_same_index():
-    """Query returns same index → single-element path."""
-    r = create_gpx([Point(48.8, 2.2), Point(48.81, 2.19), Point(48.82, 2.18)])
-    matcher = ReferencePaths(r)
-    gap = Gap(matcher._ref_pts[1], matcher._ref_pts[1], 1e6)
-    path = matcher.find_path(gap)
-    assert path == [matcher._ref_pts[1]]
 
 
 def test_find_path_distance_rejection():
