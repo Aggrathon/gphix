@@ -22,12 +22,6 @@ class GPXSegment:
     namespaces: dict[str, str]
     point_tag: str = "trkpt"
 
-    def time(self) -> datetime | None:
-        """Return the time of the first point in this segment."""
-        if fp := self.first_point():
-            return fp.time
-        return None
-
     def first_point(self) -> GPXPoint | None:
         """Return the first point in this segment, or None if empty."""
         pt = self.segment.find(f"gpx:{self.point_tag}", self.namespaces)
@@ -105,7 +99,7 @@ class GPXPoint:
 
     element: ET.Element
     uri: str
-    namespace: dict[str, str]
+    namespaces: dict[str, str]
 
     @property
     def latitude(self) -> float:
@@ -117,12 +111,12 @@ class GPXPoint:
 
     @property
     def elevation(self) -> float | None:
-        ele = self.element.find("gpx:ele", self.namespace)
+        ele = self.element.find("gpx:ele", self.namespaces)
         return float(ele.text) if ele is not None and ele.text is not None else None
 
     @elevation.setter
     def elevation(self, value: float):
-        ele = self.element.find("gpx:ele", self.namespace)
+        ele = self.element.find("gpx:ele", self.namespaces)
         if ele is None:
             ele = ET.SubElement(self.element, f"{{{self.uri}}}ele")
         ele.text = f"{value:.3g}"
@@ -130,14 +124,14 @@ class GPXPoint:
     @property
     def time(self) -> datetime | None:
         """ISO 8601 time parsed as datetime, or None if absent."""
-        t = self.element.find("gpx:time", self.namespace)
+        t = self.element.find("gpx:time", self.namespaces)
         if t is None or t.text is None:
             return None
         return datetime.fromisoformat(t.text)
 
     @time.setter
     def time(self, value: datetime):
-        t = self.element.find("gpx:time", self.namespace)
+        t = self.element.find("gpx:time", self.namespaces)
         if t is None:
             t = ET.SubElement(self.element, f"{{{self.uri}}}time")
         t.text = value.isoformat()
@@ -208,7 +202,7 @@ class GPX:
             ET.register_namespace("", self.uri)
         self.tree.write(output_path, encoding="utf-8", xml_declaration=True)
 
-    def stats(self) -> GPXStats:
+    def stats(self, count_routes: bool = True) -> GPXStats:
         """Compute and return statistics for all points in the GPX."""
         duration = 0.0
         length = 0.0
@@ -217,7 +211,7 @@ class GPX:
         bounds_elev = None, None
         bounds_lat = None, None
         bounds_lon = None, None
-        for seg in self.segments(sorted=False, routes=True):
+        for seg in self.segments(sorted=False, routes=count_routes):
             times = []
             lats = []
             lons = []
@@ -304,7 +298,7 @@ class GPX:
 
         if not timed:
             return [seg for _, seg in untimed]
-        timed.sort()
+        timed.sort(key=lambda x: x[0])
         if not untimed:
             return [seg for _, _, seg in timed]
 

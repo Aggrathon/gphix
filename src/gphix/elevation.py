@@ -8,41 +8,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from io import BytesIO
 from os import PathLike
+from typing import Callable
 
 from gphix.gpx import GPX, GPXPoint
-from gphix.utils import METERS_PER_DEG, haversine
-
-
-class Lazy:
-    """Static class for lazily loading heavy packages."""
-
-    _loaded = False
-
-    @classmethod
-    def load(cls):
-        """Make sure rasterio, scipy, and numpy are imported."""
-        if cls._loaded:
-            return
-        cls._loaded = True
-
-        import numpy
-        import rasterio
-        from rasterio.crs import CRS
-        from rasterio.transform import rowcol
-        from rasterio.warp import transform
-        from rasterio.windows import Window
-        from scipy.interpolate import interpn
-        from scipy.spatial import KDTree
-
-        cls.open = rasterio.open
-        cls.CRS = CRS
-        cls.rowcol = rowcol
-        cls.transform = transform
-        cls.Window = Window
-        cls.interpn = interpn
-        cls.KDTree = KDTree
-        cls.np = numpy
-
+from gphix.utils import METERS_PER_DEG, LocalKDTree, haversine
 
 GEOSPATIAL_EXT = (".tif", ".tiff", ".img", ".jp2", ".ras", ".dat", ".hgt")
 GPX_EXT = (".gpx",)
@@ -50,9 +19,57 @@ ZIP_EXT = (".zip",)
 TAR_EXT = (".tar", ".gz", ".tgz", ".tar.bz2", ".tar.xz")
 
 
+class DEMFile:
+    _interpn: Callable | None = None
+
+    def __init__(self, path: str | PathLike):
+        import rasterio
+        from rasterio.crs import CRS
+        from rasterio.transform import rowcol
+        from rasterio.warp import transform
+        from rasterio.windows import Window
+
+        self._transform = transform
+        self._rowcol = rowcol
+        self._window = Window.from_slices
+        self.handle = rasterio.open(path)
+        self.crs = CRS.from_epsg(4326)
+
+    def close(self):
+        self.handle.close()
+
+    def elevation(self, latitude: float, longitude: float) -> float | None:
+        height, width = self.handle.shape
+        lon, lat = self._transform(self.crs, self.handle.crs, [longitude], [latitude])
+        rowf, colf = self._rowcol(self.handle.transform, lon[0], lat[0], op=lambda v: v)
+        row, col = int(rowf), int(colf)
+        if 0 <= row < height and 0 <= col < width:
+            rows = (max(row - 1, 0), min(row + 2, height))
+            cols = (max(col - 1, 0), min(col + 2, width))
+            dem = self.handle.read(1, window=self._window(rows, cols))
+            if dem.size:
+                if self.handle.nodata is not None:
+                    dem[dem == self.handle.nodata] = math.nan
+                if dem.size == 1:
+                    return float(dem[0, 0])
+                if self._interpn is None:
+                    from scipy.interpolate import interpn
+
+                    self._interpn = interpn
+                elevation = self._interpn(
+                    (range(*rows), range(*cols)),
+                    dem[..., None],
+                    [[rowf - 0.5, colf - 0.5]],
+                    method="slinear",
+                    bounds_error=False,
+                    fill_value=None,
+                )[0, 0]
+                return float(elevation)
+
+
 def open_elevation_sources(
     paths: Sequence[PathLike], extract: bool = False
-) -> tuple[list, list[GPX]]:
+) -> tuple[list[DEMFile], list[GPX]]:
     """Open elevation sources (expanding archives).
 
     Args:
@@ -63,15 +80,13 @@ def open_elevation_sources(
     Returns:
         Tuple of (rasterio DEM file handles and GPX:s). Callers are responsible for closing rasterio handles.
     """
-    Lazy.load()
-
     dems: list = []
     gpxs: list[GPX] = []
     for path in paths:
         path_str = str(path)
         pl = path_str.lower()
         if pl.endswith(GEOSPATIAL_EXT):
-            dems.append(Lazy.open(path))
+            dems.append(DEMFile(path))
         elif pl.endswith(GPX_EXT):
             gpxs.append(GPX(path))
         elif pl.endswith(ZIP_EXT):
@@ -82,9 +97,9 @@ def open_elevation_sources(
                         gpxs.append(GPX(BytesIO(archive.read(name))))
                     elif nl.endswith(GEOSPATIAL_EXT):
                         if extract:
-                            dems.append(Lazy.open(BytesIO(archive.read(name))))
+                            dems.append(DEMFile(BytesIO(archive.read(name))))
                         else:
-                            dems.append(Lazy.open(f"zip+file://{path_str}!{name}"))
+                            dems.append(DEMFile(f"zip+file://{path_str}!{name}"))
         elif pl.endswith(TAR_EXT):
             with tarfile.open(path) as archive:
                 for item in archive:
@@ -95,11 +110,11 @@ def open_elevation_sources(
                         gpxs.append(GPX(archive.extractfile(item)))
                     elif nl.endswith(GEOSPATIAL_EXT):
                         if extract:
-                            dems.append(Lazy.open(archive.extractfile(item)))
+                            dems.append(DEMFile(archive.extractfile(item)))
                         else:
-                            dems.append(Lazy.open(f"tar+file://{path_str}!{item.name}"))
+                            dems.append(DEMFile(f"tar+file://{path_str}!{item.name}"))
         else:
-            dems.append(Lazy.open(path_str))
+            dems.append(DEMFile(path))
 
     return dems, gpxs
 
@@ -133,41 +148,26 @@ class GPXInterpolator:
         if not edges:
             return
 
-        # Compute projection reference (mean lat/lon of all edge midpoints).
-        # We project chunk midpoints into a local equirectangular meter grid
-        # so that KDTree distances are meaningful in metres.
-        avg_lat = sum(e.lat for e in edges) / len(edges)
-        avg_lon = sum(e.lon for e in edges) / len(edges)
-        self._ref_lat = avg_lat
-        self._ref_lon = avg_lon
-        self._ref_met = math.cos(math.radians(avg_lat)) * METERS_PER_DEG
-
         chunk_size = max(1.0, 2 * radius)
-        chunk_coords: list[list[float]] = []
+        pts: list[tuple[float, float]] = []
         for edge in edges:
             num_chunks = max(1, round(math.sqrt(edge.dv2) / chunk_size))
             for i in range(num_chunks):
                 mid_t = (i + 0.5) / num_chunks
                 mid_lat = edge.lat + mid_t * edge.dlat
                 mid_lon = edge.lon + mid_t * edge.dlon
-                mid_x = (mid_lon - avg_lon) * self._ref_met
-                mid_y = (mid_lat - avg_lat) * METERS_PER_DEG
-                chunk_coords.append([mid_x, mid_y])
+                pts.append((mid_lat, mid_lon))
                 self._chunks.append(edge)
 
-        if self._chunks:
-            self._tree = Lazy.KDTree(Lazy.np.array(chunk_coords))
+        self._tree = LocalKDTree(pts)
 
     def elevation(self, latitude: float, longitude: float) -> float | None:
         """Return elevation from the closest GPX track edge, or ``None``."""
         if not self._chunks or self._tree is None:
             return None
 
-        # Project query point into the same meter grid used for the tree.
-        qx = (longitude - self._ref_lon) * self._ref_met
-        qy = (latitude - self._ref_lat) * METERS_PER_DEG
         hits = self._tree.query_ball_point(
-            [qx, qy], r=max(1.0, 2 * self.radius), workers=-1
+            latitude, longitude, r=max(1.0, 2 * self.radius)
         )
         best_dist = math.inf
         best_elev = None
@@ -250,11 +250,9 @@ class ElevationDataManager:
     def __init__(
         self, paths: Sequence[PathLike], radius: float = 50.0, extract: bool = False
     ):
-        Lazy.load()
         self.paths = paths
-        self.dem_files: list = []
+        self.dem_files = []
         self.extract = extract
-        self.crs = Lazy.CRS.from_epsg(4326)
         self.radius = radius
         self.gpx_provider: GPXInterpolator | None = None
 
@@ -282,35 +280,13 @@ class ElevationDataManager:
                 return value
 
         for i, dem_file in enumerate(self.dem_files):
-            height, width = dem_file.shape
-            lon, lat = Lazy.transform(self.crs, dem_file.crs, [longitude], [latitude])
-            rowf, colf = Lazy.rowcol(dem_file.transform, lon[0], lat[0], op=lambda v: v)
-            row, col = int(rowf), int(colf)
-            if 0 <= row < height and 0 <= col < width:
-                rows = (max(row - 1, 0), min(row + 2, height))
-                cols = (max(col - 1, 0), min(col + 2, width))
-                dem = dem_file.read(
-                    1, window=Lazy.Window.from_slices(rows, cols)
-                ).copy()
-                if dem.size:
-                    if i > 0:  # Move file to index 0 (likely used for next query)
-                        self.dem_files.insert(0, self.dem_files.pop(i))
-                    if dem.size == 1:
-                        return float(dem[0, 0])
-                    if dem_file.nodata is not None:
-                        dem[dem == dem_file.nodata] = math.nan
-
-                    elevation = Lazy.interpn(
-                        (range(*rows), range(*cols)),
-                        dem[..., None],
-                        [[rowf - 0.5, colf - 0.5]],
-                        method="slinear",
-                        bounds_error=False,
-                        fill_value=None,
-                    )[0, 0]
-                    if math.isnan(elevation):
-                        return None
-                    return float(elevation)
+            elevation = dem_file.elevation(latitude, longitude)
+            if elevation is not None:
+                if i > 0:  # Move file to index 0 (likely used for next query)
+                    self.dem_files.insert(0, self.dem_files.pop(i))
+                if math.isnan(elevation):
+                    return None
+                return elevation
         return None
 
     def __exit__(self, exc_type, exc_val, exc_tb):
