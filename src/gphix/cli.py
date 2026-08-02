@@ -7,6 +7,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import TextIO
 
+from gphix.trim import trim
 from gphix.utils import flatten
 
 from .elevation import add_elevation_to_gpx
@@ -259,11 +260,7 @@ def _print_stats(stats: GPXStats, out: TextIO, prefix: str = "  ") -> None:
         )
     else:
         print(f"{prefix}Elevation: N/A", file=out)
-    print(
-        f"{prefix}BBox: ({stats.min_lat:.6f}, {stats.min_lon:.6f}) – "
-        f"({stats.max_lat:.6f}, {stats.max_lon:.6f})",
-        file=out,
-    )
+    # TODO print something from GPX.metadata()
 
 
 def _format_distance(meters: float) -> str:
@@ -425,16 +422,17 @@ def _cmd_trim(
     if not by_time and not by_distance:
         start /= 100
         end /= 100
-    trimmed = gpx.trim(start=start, end=end, by_time=by_time, by_distance=by_distance)
-
     if output != Path("-"):
         orig_stats = gpx.stats()
-        new_stats = trimmed.stats()
+    trim(gpx, start=start, end=end, by_time=by_time, by_distance=by_distance)
+
+    if output != Path("-"):
+        new_stats = gpx.stats()
         removed = orig_stats.points - new_stats.points
         dist_saved = orig_stats.distance - new_stats.distance
-        trimmed.write(output)
+        gpx.write(output)
         print(f"Trimmed {input_file} → {output}", file=out)
         _print_stats(new_stats, out)
         print(f"Removed: {removed} points ({_format_distance(dist_saved)})", file=out)
     else:
-        out.write(trimmed.to_string())
+        out.write(gpx.to_string())

@@ -1,9 +1,9 @@
 from datetime import UTC, datetime, timedelta
 
-from gphix.gpx import GPX
+from gphix.gpx import GPX, GPXMetadata
 from gphix.utils import last
 
-from .utils import Point, create_gpx_file
+from .utils import Point, create_gpx, create_gpx_file
 
 
 def test_last():
@@ -24,13 +24,10 @@ def test_stats_basic(tmp_path):
     assert stats.duration == 0.0
     assert stats.start_time is None
     assert stats.end_time is None
-    assert stats.min_lat == 40.7128
-    assert stats.max_lat == 51.5074
-    assert stats.min_lon == -74.006
-    assert stats.max_lon == 2.2945
     assert stats.min_elev is None
     assert stats.max_elev is None
     assert stats.tracks == 1
+    assert gpx.metadata() is None
 
 
 def test_stats_with_elevation(tmp_path):
@@ -188,3 +185,35 @@ def test_track_builder(tmp_path):
     assert points[2].elevation == pt.elevation
     assert points[2].time == pt.time
     assert points[3].elevation == 99.0
+
+
+def test_metadata_empty(tmp_path):
+    """Test metadata() returns None when no <metadata> element exists."""
+    gpx_path = tmp_path / "input.gpx"
+    create_gpx_file(gpx_path)
+    gpx = GPX(gpx_path)
+    assert gpx.metadata() is None
+
+
+def test_metadata_full(tmp_path):
+    """Test parsing a GPX file with full metadata."""
+    gpx_path = tmp_path / "input.gpx"
+    meta = GPXMetadata(
+        name="My Trip",
+        description="A weekend hike",
+        author_name="Alice",
+        author_email="alice@example.com",
+        copyright="CC-BY 2024",
+        links=(("https://example.com/trip", "Trip Page", "text/html"),),
+        time=datetime(2025, 6, 15, 10, 30, 0, tzinfo=UTC),
+        keywords="hiking, summer",
+        min_lat=40.0,
+        max_lat=52.0,
+        min_lon=-75.0,
+        max_lon=3.0,
+    )
+    create_gpx_file(gpx_path, metadata=meta)
+    gpx = GPX(gpx_path)
+    assert meta == gpx.metadata()
+    gpx = create_gpx(metadata=meta)
+    assert meta == gpx.metadata()

@@ -1,4 +1,4 @@
-from gphix.gpx import GPX
+from gphix.gpx import GPX, GPXMetadata
 
 from .utils import Point, create_gpx_file
 
@@ -55,16 +55,12 @@ def test_merge_metadata(tmp_path):
     """Test that only the first file's metadata is preserved."""
     f1 = tmp_path / "gpx1.gpx"
     f2 = tmp_path / "gpx2.gpx"
-
-    create_gpx_file(f1, [Point(40.0, -74.0)], metadata="<name>First</name>")
-    create_gpx_file(f2, [Point(51.0, 1.0)], metadata="<name>Second</name>")
-
+    m1 = GPXMetadata(name="First")
+    m2 = GPXMetadata(name="First")
+    create_gpx_file(f1, [Point(40.0, -74.0)], metadata=m1)
+    create_gpx_file(f2, [Point(51.0, 1.0)], metadata=m2)
     merged = GPX.merge([f1, f2])
-    metas = list(merged.root.findall("gpx:metadata", merged.namespaces))
-    assert len(metas) == 1
-    name = metas[0].find("gpx:name", merged.namespaces)
-    assert name is not None
-    assert name.text == "First"
+    assert merged.metadata() == m1
 
 
 def test_merge_single_file(tmp_path):
@@ -73,7 +69,6 @@ def test_merge_single_file(tmp_path):
     create_gpx_file(
         f, [Point(48.5, 2.2, 10.0), Point(51.0, -0.8, 20.0), Point(40.1, -74.6, 30.0)]
     )
-
     orig = GPX(f)
     merged = GPX.merge([f])
     assert merged.stats() == orig.stats()

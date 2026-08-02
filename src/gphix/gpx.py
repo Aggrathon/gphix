@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import itertools
 import xml.etree.ElementTree as ET
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -49,6 +48,64 @@ class GPXSegment:
             self.segment.remove(target.element)
 
 
+@dataclass(slots=True)
+class GPXMetadata:
+    """Parsed metadata from a GPX file."""
+
+    name: str | None = None
+    description: str | None = None
+    author_name: str | None = None
+    author_email: str | None = None
+    copyright: str | None = None
+    links: tuple[tuple[str, str, str | None], ...] = ()
+    time: datetime | None = None
+    keywords: str | None = None
+    min_lat: float | None = None
+    max_lat: float | None = None
+    min_lon: float | None = None
+    max_lon: float | None = None
+
+    def to_string(self) -> str:
+        """Return metadata as XML."""
+        meta = ET.Element("metadata")
+        self._to_xml(meta, "")
+        return ET.tostring(meta).decode("utf-8")
+
+    def _to_xml(self, root: ET.Element, ns: str):
+        """Append metadata XML elements to `root` using namespace `ns`."""
+
+        def elem(parent: ET.Element, tag: str, text: str | None):
+            if text:
+                ET.SubElement(parent, f"{ns}{tag}").text = text
+
+        elem(root, "name", self.name)
+        elem(root, "desc", self.description)
+        if self.author_name is not None or self.author_email is not None:
+            author = ET.SubElement(root, f"{ns}author")
+            elem(author, "name", self.author_name)
+            elem(author, "email", self.author_email)
+        elem(root, "copyright", self.copyright)
+        for href, text, link_type in self.links:
+            link = ET.SubElement(root, f"{ns}link", href=href)
+            elem(link, "text", text)
+            elem(link, "type", link_type)
+        if self.time is not None:
+            elem(root, "time", self.time.isoformat())
+        elem(root, "keywords", self.keywords)
+        bounds_attrs = {
+            attr: str(val)
+            for attr, val in (
+                ("minlat", self.min_lat),
+                ("maxlat", self.max_lat),
+                ("minlon", self.min_lon),
+                ("maxlon", self.max_lon),
+            )
+            if val is not None
+        }
+        if bounds_attrs:
+            ET.SubElement(root, f"{ns}bounds", bounds_attrs)
+
+
 @dataclass(frozen=True, slots=True)
 class GPXStats:
     """Computed statistics for a GPX file."""
@@ -58,10 +115,6 @@ class GPXStats:
     duration: float
     start_time: datetime | None
     end_time: datetime | None
-    min_lat: float | None
-    max_lat: float | None
-    min_lon: float | None
-    max_lon: float | None
     min_elev: float | None
     max_elev: float | None
     tracks: int
@@ -173,8 +226,10 @@ class GPX:
             for child in src.root:
                 tag = child.tag.split("}")[-1]
                 if tag == "metadata" and no_metadata:
-                    merged.root.append(child)
-                    no_metadata = False
+                    for _ in child.iter():
+                        merged.root.append(child)
+                        no_metadata = False
+                        break
                 elif tag in {"trk", "wpt", "rte"}:
                     merged.root.append(copy.deepcopy(child))
         return merged
@@ -189,6 +244,64 @@ class GPX:
         """Generator yielding all points (trkpt, wpt, rtept) in the GPX file."""
         for node in self.root.iterfind(".//gpx:wpt", self.namespaces):
             yield GPXPoint(node, self.uri, self.namespaces)
+
+    def metadata(self) -> GPXMetadata | None:
+        """Return parsed metadata from the GPX file, or None if absent."""
+        meta = self.root.find("gpx:metadata", self.namespaces)
+        if meta is None:
+            return None
+
+        def text(tag: str, parent: ET.Element) -> str | None:
+            el = parent.find(f"gpx:{tag}", self.namespaces)
+            return el.text if el is not None and el.text else None
+
+        author_name = author_email = None
+        if (author := meta.find("gpx:author", self.namespaces)) is not None:
+            author_name = text("name", author)
+            author_email = text("email", author)
+
+        links = []
+        for link in meta.iterfind("gpx:link", self.namespaces):
+            if href := link.get("href"):
+                link_text = text("text", link) or link.text
+                link_type = text("type", link)
+                links.append((href, link_text or "", link_type))
+
+        min_lat = max_lat = min_lon = max_lon = None
+        if (bounds := meta.find("gpx:bounds", self.namespaces)) is not None:
+            min_lat = float(v) if (v := bounds.get("minlat")) else None
+            max_lat = float(v) if (v := bounds.get("maxlat")) else None
+            min_lon = float(v) if (v := bounds.get("minlon")) else None
+            max_lon = float(v) if (v := bounds.get("maxlon")) else None
+        time = text("time", meta)
+
+        return GPXMetadata(
+            name=text("name", meta),
+            description=text("desc", meta),
+            author_name=author_name,
+            author_email=author_email,
+            copyright=text("copyright", meta),
+            links=tuple(links),
+            time=datetime.fromisoformat(time) if time else None,
+            keywords=text("keywords", meta),
+            min_lat=min_lat,
+            max_lat=max_lat,
+            min_lon=min_lon,
+            max_lon=max_lon,
+        )
+
+    def set_metadata(self, metadata: GPXMetadata):
+        """Set metadata. If the GPX file already contains metadata, it is replaced.
+
+        Args:
+            metadata: The metadata to write.
+        """
+        meta = self.root.find("gpx:metadata", self.namespaces)
+        if meta is None:
+            meta = ET.SubElement(self.root, f"{{{self.uri}}}metadata")
+        else:
+            meta.clear()
+        metadata._to_xml(meta, f"{{{self.uri}}}")
 
     def to_string(self) -> str:
         """Serialize the GPX to an XML string."""
@@ -209,40 +322,24 @@ class GPX:
         points = 0
         bounds_time = None, None
         bounds_elev = None, None
-        bounds_lat = None, None
-        bounds_lon = None, None
         for seg in self.segments(sorted=False, routes=count_routes):
             times = []
-            lats = []
-            lons = []
-            elev = []
+            coords = []
             for p in seg.points():
                 if p.time:
                     times.append(p.time)
-                lats.append(p.latitude)
-                lons.append(p.longitude)
-                elev.append(p.elevation)
-            points += len(lats)
+                coords.append((p.latitude, p.longitude, p.elevation))
+            points += len(coords)
             if times:
                 start = max(times)
                 end = min(times)
                 duration += (start - end).total_seconds()
                 bounds_time = update_bounds(*bounds_time, (start, end))
-            if lats:
-                length += distance(zip(lats, lons, elev))
-                bounds_lat = update_bounds(*bounds_lat, lats)
-                bounds_lon = update_bounds(*bounds_lon, lons)
+            if coords:
+                length += distance(coords)
                 bounds_elev = update_bounds(
-                    *bounds_elev, [e for e in elev if e is not None]
+                    *bounds_elev, [e for _, _, e in coords if e is not None]
                 )
-        wpts = [(p.latitude, p.longitude, p.elevation) for p in self.waypoints()]
-        if wpts:
-            bounds_lat = update_bounds(*bounds_lat, (l for l, _, _ in wpts))
-            bounds_lon = update_bounds(*bounds_lon, (l for _, l, _ in wpts))
-            bounds_elev = update_bounds(
-                *bounds_elev, (e for _, _, e in wpts if e is not None)
-            )
-
         track_count = len(self.root.findall("gpx:trk", self.namespaces))
 
         return GPXStats(
@@ -251,22 +348,18 @@ class GPX:
             duration=duration,
             start_time=bounds_time[0],
             end_time=bounds_time[1],
-            min_lat=bounds_lat[0],
-            max_lat=bounds_lat[1],
-            min_lon=bounds_lon[0],
-            max_lon=bounds_lon[1],
             min_elev=bounds_elev[0],
             max_elev=bounds_elev[1],
             tracks=track_count,
         )
 
     def segments(self, sorted: bool = True, routes: bool = False) -> list[GPXSegment]:
-        """Return ``GPXSegment`` objects.
+        """Return `GPXSegment` objects.
 
         Args:
             sort: Sort segments temporally, bridging gaps with time-less
                 segments by geographic proximity.
-            routes: Also include route segments (``rte`` elements).
+            routes: Also include route segments (`rte` elements).
         """
         out = []
         timed = []
@@ -332,86 +425,3 @@ class GPX:
                     best_cost, best_idx = cost, i
             fixed.insert(best_idx, (sf, sl, segment))
         return [seg for *_, seg in fixed]
-
-    def trim(
-        self,
-        start: float = 0.0,
-        end: float = 0.0,
-        by_time: bool = False,
-        by_distance: bool = False,
-    ) -> GPX:
-        """Trim points from the start and end of all tracks.
-
-        Tracks are sorted temporally (by earliest timestamp).
-        Only points falling inside the middle are retained.
-
-        Args:
-            start:     Fraction (0.0–1.0) to remove from the beginning.
-            end:       Fraction (0.0–1.0) to remove from the end.
-            by_time:       If True, *start*/*end* are seconds.
-            by_distance:   If True, *start*/*end* are metres.
-                           Otherwise they are fractions of total points (0.0–1.0).
-
-        Returns:
-            A new `GPX` with the trimmed data (original is unchanged).
-        """
-        if by_time and by_distance:
-            raise ValueError("Cannot specify both by_time and by_distance")
-
-        clone = copy.deepcopy(self)
-        segments = clone.segments()
-
-        if not segments:
-            return clone
-
-        counter: float | int = 0.0
-        if by_time:
-            step = _step_time
-        elif by_distance:
-            step = _step_dist
-        else:
-            counter = -1
-            step = lambda p1, p2: 1
-
-        positions: list[tuple[GPXSegment, GPXPoint, float | int]] = []
-        for seg in segments:
-            first = seg.first_point()
-            if first is not None:
-                if not by_time and not by_distance:
-                    counter += 1
-                positions.append((seg, first, counter))
-            for p1, p2 in itertools.pairwise(seg.points()):
-                counter += step(p1, p2)
-                positions.append((seg, p2, counter))
-
-        if counter == 0:
-            return clone
-
-        if not by_time and not by_distance:
-            start = round(start * (counter + 1))
-            end = round(end * counter)
-
-        if start + end >= counter:
-            raise ValueError("Cannot remove more points than available")
-        end = counter - end
-        for seg, pt, pos in positions:
-            if not (start <= pos <= end):
-                seg.remove(pt)
-
-        return clone
-
-
-def _step_time(p1: GPXPoint, p2: GPXPoint) -> float | int:
-    if (t1 := p1.time) is not None and (t2 := p2.time) is not None:
-        return (t2 - t1).total_seconds()
-    else:
-        return 0.0
-
-
-def _step_dist(p1: GPXPoint, p2: GPXPoint) -> float | int:
-    return distance(
-        (
-            (p1.latitude, p1.longitude, p1.elevation),
-            (p2.latitude, p2.longitude, p2.elevation),
-        )
-    )

@@ -51,7 +51,6 @@ def test_cmd_stats_stdin(tmp_path):
     assert "Duration: 0s" in output
     assert "Time: N/A" in output
     assert "Elevation: N/A" in output
-    assert "BBox:" in output
 
 
 def test_cmd_stats_with_time_and_elevation(tmp_path):

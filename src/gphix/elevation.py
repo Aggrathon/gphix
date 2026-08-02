@@ -4,11 +4,11 @@ import itertools
 import math
 import tarfile
 import zipfile
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from io import BytesIO
 from os import PathLike
-from typing import Callable
+from typing import IO
 
 from gphix.gpx import GPX, GPXPoint
 from gphix.utils import LocalKDTree, haversine, project_to_edge
@@ -22,7 +22,7 @@ TAR_EXT = (".tar", ".gz", ".tgz", ".tar.bz2", ".tar.xz")
 class DEMFile:
     _interpn: Callable | None = None
 
-    def __init__(self, path: str | PathLike):
+    def __init__(self, path: str | PathLike | IO[bytes]):
         import rasterio
         from rasterio.crs import CRS
         from rasterio.transform import rowcol

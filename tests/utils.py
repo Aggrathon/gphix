@@ -6,7 +6,7 @@ from os import PathLike
 import numpy as np
 import pytest
 
-from gphix.gpx import GPX
+from gphix.gpx import GPX, GPXMetadata
 
 
 @dataclass(slots=True)
@@ -21,7 +21,7 @@ def create_gpx(
     *tracks: Sequence[Point],
     waypoints: Sequence[Point] | None = None,
     base_time: datetime = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
-    metadata: str = "",
+    metadata: GPXMetadata | None = None,
 ) -> GPX:
     """Create a minimal GPX for testing.
 
@@ -32,7 +32,7 @@ def create_gpx(
         waypoints: Zero or more `Point` objects, each becomes a ``<wpt>``.
         base_time: Base datetime used when converting ``Point.time`` (seconds
             offset) to ISO 8601 timestamps.
-        metadata: Raw XML to insert inside a ``<metadata>`` element (empty = none).
+        metadata: ``GPXMetadata`` instance to serialize (``None`` = none).
     """
     default = [Point(-48.8, 2.2), Point(51.4, -0.8), Point(40.1, -74.6)]
     gpx = GPX(None)
@@ -48,7 +48,7 @@ def create_gpx(
         else:
             gpx.add_waypoint(wpt.lat, wpt.lon).elevation = wpt.ele
     if metadata:
-        pass  # TODO metadata
+        gpx.set_metadata(metadata)
     return gpx
 
 
@@ -57,7 +57,7 @@ def create_gpx_file(
     *tracks: Sequence[Point],
     waypoints: Sequence[Point] | None = None,
     base_time: datetime = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
-    metadata: str = "",
+    metadata: GPXMetadata | None = None,
 ):
     """Create a minimal GPX track file for testing.
 
@@ -69,7 +69,7 @@ def create_gpx_file(
         waypoints: Zero or more `Point` objects, each becomes a ``<wpt>``.
         base_time: Base datetime used when converting ``Point.time`` (seconds
             offset) to ISO 8601 timestamps.
-        metadata: Raw XML to insert inside a ``<metadata>`` element (empty = none).
+        metadata: ``GPXMetadata`` instance to serialize.
     """
     default = [Point(48.8584, 2.2945), Point(51.5074, -0.1278), Point(40.7128, -74.006)]
 
@@ -78,9 +78,7 @@ def create_gpx_file(
         '<gpx version="1.1" creator="GPhiX" xmlns="http://www.topografix.com/GPX/1/1">',
     ]
     if metadata:
-        lines.append("  <metadata>")
-        lines.append(metadata)
-        lines.append("  </metadata>")
+        lines.append(metadata.to_string())
 
     if waypoints:
         for wp in waypoints:
