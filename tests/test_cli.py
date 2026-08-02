@@ -303,3 +303,72 @@ def test_cmd_elevation_overwrite_and_stdout(tmp_path):
     assert "<?xml" in buf2.getvalue()
     gpx2 = GPX(BytesIO(buf2.getvalue().encode()))
     assert gpx2.stats().min_elev == 100.0
+
+
+def test_cmd_fill(tmp_path):
+    """Test fill subcommand: fill gaps using reference GPX."""
+    input_path = tmp_path / "input.gpx"
+    create_gpx_file(
+        input_path,
+        [Point(48.8, 2.2, time=0), Point(48.86, 2.3, time=10)],
+        [Point(50.0, 1.0, time=3600), Point(50.5, 0.5, time=3610)],
+    )
+    ref_path = tmp_path / "ref.gpx"
+    create_gpx_file(
+        ref_path,
+        [Point(48.8, 2.2), Point(49.0, 2.0), Point(49.5, 1.5), Point(50.0, 1.0)],
+    )
+
+    buf = StringIO()
+    main(["fill", str(input_path), str(ref_path), "-o", "-"], out=buf)
+    gpx = GPX(BytesIO(buf.getvalue().encode()))
+    assert len(list(gpx.points())) == 8
+
+
+def test_cmd_fill_list(tmp_path):
+    """Test fill --list outputs gap information."""
+    input_path = tmp_path / "input.gpx"
+    create_gpx_file(
+        input_path,
+        [Point(48.8, 2.2, time=0)],
+        [Point(51.5, -0.1, time=3600)],
+        [Point(40.7, -74.0, time=7200)],
+    )
+    ref_path = tmp_path / "ref.gpx"
+    create_gpx_file(ref_path, [Point(48.8, 2.2), Point(51.5, -0.1), Point(40.7, -74.0)])
+
+    buf = StringIO()
+    main(["fill", str(input_path), str(ref_path), "--list"], out=buf)
+    output = buf.getvalue()
+
+    assert "dist=" in output
+    assert "duration=" in output
+    assert "→" in output
+    gap_lines = [l for l in output.strip().split("\n") if l]
+    assert len(gap_lines) == 2
+
+
+def test_cmd_fill_selective(tmp_path):
+    """Test fill with -g to fill specific gaps."""
+    gpx_path = tmp_path / "input.gpx"
+    create_gpx_file(
+        gpx_path,
+        *[
+            [Point(51.5, -0.1, time=i)] if i % 2 == 0 else [Point(40.7, -74.0, time=i)]
+            for i in range(7)
+        ],
+    )
+    ref_path = tmp_path / "ref.gpx"
+    create_gpx_file(
+        ref_path,
+        [Point(40.7, -74.0), Point(42.8, -53.0), Point(48.8, 12.2), Point(51.5, -0.1)],
+    )
+    out_path = tmp_path / "filled.gpx"
+
+    buf = StringIO()
+    main(
+        ["fill", "-", str(ref_path), "-o", str(out_path), "-g", "1", "-g", "2", "3"],
+        out=buf,
+        stdin=_file_to_stdin(gpx_path),
+    )
+    assert "Filled 3 gap(s)" in buf.getvalue()

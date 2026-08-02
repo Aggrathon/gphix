@@ -6,21 +6,13 @@
 - [x] Insert new points/tracks
 - [x] Add missing elevation data
 - [x] Fill gaps from reference GPX
-  - [x] Identify gaps (enough time and distance between segments)
-  - [x] Select gaps
-  - [x] Find matching start & end from reference GPX
-  - [x] Insert points (copied from part of a track in the reference)
-  - [ ] Adjust fill path with new closest points
-  - [ ] Find fill paths inside segments
-- [ ] CLI
+- [x] CLI
   - [x] Stats
   - [x] Merge
   - [x] Trim
   - [x] Insert
   - [x] Elevation
-  - [ ] Fill
-    - [ ] List gaps
-    - [ ] Fill (selected) gaps
+  - [x] Fill
 - [ ] Web UI
   - [ ] Graphs
     - [ ] Topdown

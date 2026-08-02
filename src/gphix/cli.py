@@ -7,7 +7,10 @@ from io import BytesIO
 from pathlib import Path
 from typing import TextIO
 
+from gphix.utils import flatten
+
 from .elevation import add_elevation_to_gpx
+from .fill import fill_gaps, find_gaps
 from .gpx import GPX, GPXStats
 
 
@@ -105,6 +108,44 @@ def main(
         help="Points as comma-separated values: 'lat,lon' or 'lat,lon,ele' or 'lat,lon,ele,time'",
     )
 
+    # --- fill ---
+    fill_parser = subparsers.add_parser(
+        "fill", help="Fill gaps between segments using a reference GPX"
+    )
+    _add_input_arg(fill_parser)
+    fill_parser.add_argument(
+        "ref",
+        type=Path,
+        help="Reference GPX file (path source for filling gaps)",
+    )
+    _add_output_arg(fill_parser)
+    fill_parser.add_argument(
+        "--list",
+        action="store_true",
+        help="List gaps and exit without modifying (outputs JSON)",
+    )
+    fill_parser.add_argument(
+        "--min-distance",
+        type=float,
+        default=200.0,
+        help="Minimum gap distance in metres (default: 200)",
+    )
+    fill_parser.add_argument(
+        "--min-time",
+        type=float,
+        default=None,
+        help="Minimum gap duration in seconds",
+    )
+    fill_parser.add_argument(
+        "-g",
+        "--gap",
+        type=int,
+        nargs="+",
+        action="append",
+        default=None,
+        help="Fill only specific gaps by index (repeatable)",
+    )
+
     # --- elevation ---
     elev_parser = subparsers.add_parser(
         "elevation", help="Add elevation data from external sources to a GPX file"
@@ -161,6 +202,18 @@ def main(
             parsed.output,
             parsed.overwrite,
             parsed.radius,
+            out,
+            stdin,
+        )
+    elif parsed.command == "fill":
+        _cmd_fill(
+            parsed.input,
+            parsed.ref,
+            parsed.output,
+            parsed.list,
+            parsed.min_distance,
+            parsed.min_time,
+            parsed.gap,
             out,
             stdin,
         )
@@ -315,6 +368,42 @@ def _cmd_insert(
     if output != Path("-"):
         gpx.write(output)
         print(f"Inserted {len(parsed)} point(s) into {input_file} → {output}", file=out)
+        _print_stats(gpx.stats(), out)
+    else:
+        out.write(gpx.to_string())
+
+
+def _cmd_fill(
+    input_file: Path,
+    ref_file: Path,
+    output: Path,
+    list_gaps: bool,
+    min_distance: float,
+    min_time: float | None,
+    selected_gaps: list[int | list[int]] | None,
+    out: TextIO,
+    stdin: BytesIO | None = None,
+) -> None:
+    """Handle the ``fill`` subcommand."""
+    gpx = _load_gpx(input_file, stdin)
+    ref = _load_gpx(ref_file, stdin)
+
+    if list_gaps:
+        gaps = find_gaps(gpx, min_distance, min_time)
+        for i, gap in enumerate(gaps):
+            duration = f"{gap.duration:.0f}s" if gap.duration is not None else "N/A"
+            print(
+                f"{i}  {gap.start.lat:.6f},{gap.start.lon:.6f} → "
+                f"{gap.end.lat:.6f},{gap.end.lon:.6f}  "
+                f"dist={gap.distance:.0f}m  duration={duration}",
+                file=out,
+            )
+        return
+
+    filled = fill_gaps(gpx, ref, min_distance, min_time, flatten(selected_gaps))
+    if output != Path("-"):
+        gpx.write(output)
+        print(f"Filled {filled} gap(s) from {ref_file} → {output}", file=out)
         _print_stats(gpx.stats(), out)
     else:
         out.write(gpx.to_string())

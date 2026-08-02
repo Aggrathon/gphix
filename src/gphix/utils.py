@@ -133,3 +133,16 @@ def last[T](iterator: Iterator[T] | Iterable[T]) -> None | T:
     for i in iterator:
         item = i
     return item
+
+
+def flatten[T](nested: list[T | list[T]] | None) -> list[T] | None:
+    """Flatten a list potentially containing lists."""
+    if nested is None:
+        return None
+    flat = []
+    for i in nested:
+        if isinstance(i, list):
+            flat.extend(i)
+        else:
+            flat.append(i)
+    return flat
