@@ -30,9 +30,8 @@ def test_find_gaps_basic():
         [Point(51.5074, -0.1278, time=3600), Point(51.51, -0.12, time=3610)],
     )
     (gap,) = find_gaps(gpx, min_distance=200.0)
-    assert abs(gap.distance - 341_000) < 2000
-    assert gap.start_time is not None
-    assert gap.end_time is not None
+    assert abs(gap.distance - 341_000) < 1000
+    assert abs(gap.duration - 3600 + 10) < 0.1
 
 
 def test_find_gaps_min_distance():
@@ -130,8 +129,8 @@ def test_find_path_same_index(reverse: bool, single: bool):
 def test_find_match_different_tracks():
     """Candidates on different tracks → no match."""
     r = GPX(None)
-    r.add_track().add_points((48.8, 2.2), (48.81, 2.19))
-    r.add_track().add_points((51.5, -0.1), (51.51, -0.09))
+    r.add_track().add_points((48.8, 2.1), (48.7, 2.2))
+    r.add_track().add_points((51.5, 0.0), (51.6, 0.0))
     g = create_gpx([Point(48.8, 2.2)], [Point(51.5, -0.1)])
     (gap,) = find_gaps(g)
     assert ReferencePaths(r).find_path(gap) is None
@@ -144,6 +143,21 @@ def test_find_path_distance_rejection():
     # Gap endpoints are far from any ref points
     gap = Gap(RefPoint(-1, 0.0, 0.0), RefPoint(-1, 1.0, 1.0), 100.0)
     assert matcher.find_path(gap) is None
+
+
+@pytest.mark.parametrize("second", [False, True], ids=("first", "second"))
+def test_find_path_multi_segment(second: bool):
+    """Multiple candidate segments; the best deviation is chosen."""
+    r = create_gpx(
+        [Point(47.5, 2.0), Point(48.0, 2.0), Point(48.5, 2.0), Point(49.0, 2.0)],
+        [Point(47.5, 2.5), Point(48.0, 2.5), Point(48.5, 2.5), Point(49.0, 2.5)],
+    )
+    matcher = ReferencePaths(r)
+    off = int(second) / 10
+    gap = Gap(RefPoint(-1, 47.2, 2.1 + off), RefPoint(-1, 49.3, 2.3 + off), 1e6)
+    path = matcher.find_path(gap)
+    assert path is not None
+    assert all(p.segment == int(second) for p in path)
 
 
 def test_interpolate_linear():

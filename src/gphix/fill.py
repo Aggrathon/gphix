@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from itertools import pairwise
@@ -32,11 +33,10 @@ class RefPoint:
 class Gap:
     """A gap between two track segments in a GPX."""
 
-    start_point: RefPoint
-    end_point: RefPoint
+    start: RefPoint
+    end: RefPoint
     distance: float
-    start_time: datetime | None = None
-    end_time: datetime | None = None
+    duration: float | None = None
 
 
 def find_gaps(
@@ -54,19 +54,12 @@ def find_gaps(
         dist = start.distance(end)
         if dist < min_distance:
             continue
+        gap_time = None
         if start.time is not None and end.time is not None:
             gap_time = (end.time - start.time).total_seconds()
             if min_time is not None and gap_time < min_time:
                 continue
-        gaps.append(
-            Gap(
-                start_point=start,
-                end_point=end,
-                distance=dist,
-                start_time=start.time,
-                end_time=end.time,
-            )
-        )
+        gaps.append(Gap(start=start, end=end, distance=dist, duration=gap_time))
     return gaps
 
 
@@ -74,16 +67,23 @@ class ReferencePaths:
     """KDTree index over a reference GPX for gap boundary matching."""
 
     def __init__(self, ref: GPX):
-        self._tree = LocalKDTree(
-            (pt.latitude, pt.longitude)
-            for seg in ref.segments(sorted=False, routes=True)
-            for pt in seg.points()
-        )
         self._ref_pts = [
             RefPoint.from_gpx_point(pt, i)
             for i, seg in enumerate(ref.segments(sorted=False, routes=True))
             for pt in seg.points()
         ]
+        self._tree = LocalKDTree((pt.lat, pt.lon) for pt in self._ref_pts)
+
+    def _iter_segment(self, index: int) -> Iterator[int]:
+        segment = self._ref_pts[index].segment
+        for pt in range(index, len(self._ref_pts)):
+            if self._ref_pts[pt].segment != segment:
+                break
+            yield pt
+        for pt in range(index - 1, -1, -1):
+            if self._ref_pts[pt].segment != segment:
+                break
+            yield pt
 
     def _project_nearest(self, idx: int, point: RefPoint) -> tuple[RefPoint, int]:
         """Return (projected_point, direction) for the closest edge near idx.
@@ -108,19 +108,33 @@ class ReferencePaths:
                         best_dist, best_proj, best_dir = d, proj, direction
         return best_proj, best_dir
 
+    def _closest_point_in_segment(self, i: int, pt: RefPoint) -> int:
+        return min(self._iter_segment(i), key=lambda j: pt.distance(self._ref_pts[j]))
+
     def find_path(self, gap: Gap) -> list[RefPoint] | None:
         """Find matching path in the reference GPX."""
-        start = self._tree.query(gap.start_point.lat, gap.start_point.lon)
-        end = self._tree.query(gap.end_point.lat, gap.end_point.lon)
-        if self._ref_pts[start].segment != self._ref_pts[end].segment:
-            # Different segments
-            # TODO: find closest points in segments and choose better path
-            return None
+        start = self._tree.query(gap.start.lat, gap.start.lon)
+        end = self._tree.query(gap.end.lat, gap.end.lon)
+        proj_start, dir_start = self._project_nearest(start, gap.start)
+        proj_end, dir_end = self._project_nearest(end, gap.end)
+        dist_start = proj_start.distance(gap.start)
+        dist_end = proj_end.distance(gap.end)
 
-        proj_start, dir_start = self._project_nearest(start, gap.start_point)
-        proj_end, dir_end = self._project_nearest(end, gap.end_point)
-        dist = proj_start.distance(gap.start_point) + proj_end.distance(gap.end_point)
-        if dist > gap.distance:
+        if self._ref_pts[start].segment != self._ref_pts[end].segment:
+            # Paths should be limited to the same segment
+            new_start = self._closest_point_in_segment(end, gap.start)
+            np_start, nd_start = self._project_nearest(new_start, gap.start)
+            ndi_start = np_start.distance(gap.start)
+            new_end = self._closest_point_in_segment(start, gap.end)
+            np_end, nd_end = self._project_nearest(new_end, gap.end)
+            ndi_end = np_end.distance(gap.end)
+            if dist_start + ndi_end > dist_end + ndi_start:
+                start, proj_start = new_start, np_start
+                dir_start, dist_start = nd_start, ndi_start
+            else:
+                end, proj_end, dir_end, dist_end = new_end, np_end, nd_end, ndi_end
+
+        if dist_start + dist_end > gap.distance:
             return None
 
         if start == end:
@@ -175,13 +189,13 @@ def fill_gap(gpx: GPX, matcher: ReferencePaths, gap: Gap) -> bool:
     if path is None:
         return False
     builder = gpx.add_track()
-    if gap.start_time is not None and gap.end_time is not None:
-        interpolate_time_linear(path, gap.start_time, gap.end_time)
-    elif gap.start_time is not None or gap.end_time is not None:
+    if gap.duration is not None:
+        interpolate_time_linear(path, gap.start.time, gap.end.time)
+    elif gap.start.time is not None or gap.end.time is not None:
         stats = gpx.stats(False)
         if stats.duration > 0 and stats.distance > 0:
             velocity = stats.distance / stats.duration
-            interpolate_time_fill(path, gap.start_time, gap.end_time, velocity)
+            interpolate_time_fill(path, gap.start.time, gap.end.time, velocity)
     for pt in path:
         p = builder.add_point(pt.lat, pt.lon, pt.ele)
         if pt.time is not None:
