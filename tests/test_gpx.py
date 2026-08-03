@@ -143,21 +143,21 @@ def test_segments_sort_by_geographic_gap(tmp_path):
     assert lats == [10.0, 30.0, 50.0]
 
     gpx.add_track().add_points((20.0, 30.0), (25.0, 30.0))
-    lats = [p.latitude for s in gpx.segments() if (p := s.first_point())]
+    lats = [p.latitude for s in gpx.segments(True) if (p := s.first_point())]
     assert lats == [10.0, 20.0, 30.0, 50.0]
 
     gpx.add_track()
     assert len(gpx.segments()) == 4
 
     gpx.add_track().add_points((25.0, 35.0), (30.0, 35.0))
-    lats = [p.latitude for s in gpx.segments() if (p := s.first_point())]
+    lats = [p.latitude for s in gpx.segments(True) if (p := s.first_point())]
     assert lats == [10.0, 20.0, 25.0, 30.0, 50.0]
 
     create_gpx_file(
         gpx_path, [Point(10.0, 20.0)], [Point(30.0, 40.0)], [Point(50.0, 60.0)]
     )
     gpx = GPX(gpx_path)
-    lats = [p.latitude for s in gpx.segments() if (p := s.first_point())]
+    lats = [p.latitude for s in gpx.segments(True) if (p := s.first_point())]
     assert lats == [10.0, 30.0, 50.0]
 
 
@@ -201,8 +201,8 @@ def test_metadata_full(tmp_path):
     meta = GPXMetadata(
         name="My Trip",
         description="A weekend hike",
-        author_name="Alice",
-        author_email="alice@example.com",
+        author="Alice",
+        email="alice@example.com",
         copyright="CC-BY 2024",
         links=(("https://example.com/trip", "Trip Page", "text/html"),),
         time=datetime(2025, 6, 15, 10, 30, 0, tzinfo=UTC),
@@ -217,3 +217,34 @@ def test_metadata_full(tmp_path):
     assert meta == gpx.metadata()
     gpx = create_gpx(metadata=meta)
     assert meta == gpx.metadata()
+    meta.name = "B"
+    meta.email = None
+    gpx.set_metadata(meta)
+    assert meta == gpx.metadata()
+
+
+def test_clean():
+    gpx = create_gpx([], [Point(1.0, 1.0), (Point(-1.0, 2.0))], [])
+    gpx.clean()
+    stats = gpx.stats()
+    assert stats.points == 2
+    assert len(gpx.segments()) == 1
+    assert stats.tracks == 1
+    assert gpx.metadata() is None
+    gpx.clean(add_bounds=True)
+    meta = gpx.metadata()
+    assert meta.min_lat == -1.0
+    assert meta.max_lat == 1.0
+    assert meta.min_lon == 1.0
+    assert meta.max_lon == 2.0
+    assert meta.time is None
+    time = datetime.now(UTC)
+    gpx.add_track().add_point(1.0, 3.0).time = time
+    gpx.clean()
+    meta = gpx.metadata()
+    assert meta.max_lon == 3.0
+    assert meta.time is None
+    gpx.add_track().add_points((1.0, 1.0), (0.9999, 1.0), (-0.1, 1.0), (0.9998, 1.0))
+    gpx.clean(outliers=True, add_bounds=True)
+    assert len(gpx.segments()[-1]) == 3
+    assert gpx.metadata().time == time

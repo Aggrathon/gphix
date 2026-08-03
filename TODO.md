@@ -6,6 +6,8 @@
 - [x] Insert new points/tracks
 - [x] Add missing elevation data
 - [x] Fill gaps from reference GPX
+- [x] Update metadata
+- [x] Clean GPX 
 - [x] CLI
   - [x] Stats
   - [x] Merge
@@ -13,6 +15,8 @@
   - [x] Insert
   - [x] Elevation
   - [x] Fill
+  - [x] Clean
+  - [x] Metadata 
 - [ ] Web UI
   - [ ] Graphs
     - [ ] Topdown

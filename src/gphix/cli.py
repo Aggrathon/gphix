@@ -12,7 +12,7 @@ from gphix.utils import flatten
 
 from .elevation import add_elevation_to_gpx
 from .fill import fill_gaps, find_gaps
-from .gpx import GPX, GPXStats
+from .gpx import GPX, GPXMetadata, GPXStats
 
 
 def _add_output_arg(parser: argparse.ArgumentParser) -> None:
@@ -22,7 +22,7 @@ def _add_output_arg(parser: argparse.ArgumentParser) -> None:
         "--output",
         type=Path,
         default="-",
-        help="Output GPX file path (use - for stdout)",
+        help="Output GPX file path (defaults to - for stdout)",
     )
 
 
@@ -171,6 +171,40 @@ def main(
         help="Max perpendicular distance (m) to GPX track edge (default: 50)",
     )
 
+    # --- clean ---
+    clean_parser = subparsers.add_parser(
+        "clean", help="Clean up GPX files (remove empty segments, outliers)"
+    )
+    _add_input_arg(clean_parser)
+    _add_output_arg(clean_parser)
+    clean_parser.add_argument(
+        "--outliers",
+        action="store_true",
+        help="Remove consecutive points farther than --max-distance metres",
+    )
+    clean_parser.add_argument(
+        "--max-distance",
+        type=float,
+        default=100.0,
+        help="Outlier threshold in metres (default: 100)",
+    )
+    clean_parser.add_argument(
+        "--bounds", action="store_true", help="Add bounds to metadata"
+    )
+
+    # --- meta ---
+    meta_parser = subparsers.add_parser(
+        "meta", help="Edit metadata fields of a GPX file"
+    )
+    _add_input_arg(meta_parser)
+    _add_output_arg(meta_parser)
+    meta_parser.add_argument("--name", default=None)
+    meta_parser.add_argument("--description", "--desc", default=None)
+    meta_parser.add_argument("--author", default=None)
+    meta_parser.add_argument("--email", default=None)
+    meta_parser.add_argument("--copyright", default=None)
+    meta_parser.add_argument("--keywords", default=None)
+
     parsed = parser.parse_args(args)
 
     if parsed.command == "stats":
@@ -218,6 +252,29 @@ def main(
             out,
             stdin,
         )
+    elif parsed.command == "clean":
+        _cmd_clean(
+            parsed.input,
+            parsed.output,
+            parsed.outliers,
+            parsed.max_distance,
+            parsed.bounds,
+            out,
+            stdin,
+        )
+    elif parsed.command == "meta":
+        _cmd_meta(
+            parsed.input,
+            parsed.output,
+            parsed.name,
+            parsed.description,
+            parsed.author,
+            parsed.email,
+            parsed.copyright,
+            parsed.keywords,
+            out,
+            stdin,
+        )
     else:
         parser.print_help(out)
 
@@ -225,10 +282,8 @@ def main(
 def _cmd_stats(input_file: Path, out: TextIO, stdin: BytesIO | None = None) -> None:
     """Handle the ``stats`` subcommand."""
     gpx = _load_gpx(input_file, stdin)
-    stats = gpx.stats()
-
     print(f"File: {input_file.name}", file=out)
-    _print_stats(stats, out, prefix="")
+    _print_stats(gpx, out, prefix="")
 
 
 def _cmd_merge(input_files: list[Path], output: Path, out: TextIO) -> None:
@@ -237,13 +292,33 @@ def _cmd_merge(input_files: list[Path], output: Path, out: TextIO) -> None:
     if output != Path("-"):
         merged.write(output)
         print(f"Merged {len(input_files)} file(s) → {output}", file=out)
-        _print_stats(merged.stats(), out)
+        _print_stats(merged, out)
     else:
         out.write(merged.to_string())
 
 
-def _print_stats(stats: GPXStats, out: TextIO, prefix: str = "  ") -> None:
+def _print_stats(gpx: GPX, out: TextIO, prefix: str = "  ") -> GPXStats:
     """Print common stats lines to *out* with the given *prefix*."""
+    metadata = gpx.metadata()
+    if metadata is not None:
+        if metadata.name:
+            print(f"{prefix}Name: {metadata.name}", file=out)
+        if metadata.description:
+            print(f"{prefix}Description: {metadata.description}", file=out)
+        if metadata.author or metadata.email:
+            author = metadata.author or ""
+            if metadata.email:
+                author += f" <{metadata.email}>"
+            print(f"{prefix}Author: {author}", file=out)
+        if metadata.copyright:
+            print(f"{prefix}Copyright: {metadata.copyright}", file=out)
+        if metadata.keywords:
+            print(f"{prefix}Keywords: {metadata.keywords}", file=out)
+        if metadata.links:
+            print(f"{prefix}Links:", file=out)
+            for link, name, _ in metadata.links:
+                print(f"{prefix}  {name}: {link}", file=out)
+    stats = gpx.stats()
     print(f"{prefix}Points: {stats.points}", file=out)
     print(f"{prefix}Tracks: {stats.tracks}", file=out)
     print(f"{prefix}Distance: {_format_distance(stats.distance)}", file=out)
@@ -260,7 +335,12 @@ def _print_stats(stats: GPXStats, out: TextIO, prefix: str = "  ") -> None:
         )
     else:
         print(f"{prefix}Elevation: N/A", file=out)
-    # TODO print something from GPX.metadata()
+    if metadata is not None and metadata.max_lat is not None:
+        print(
+            f"{prefix}Bounds: {metadata.min_lat},{metadata.min_lon} - {metadata.max_lat},{metadata.max_lon}",
+            file=out,
+        )
+    return stats
 
 
 def _format_distance(meters: float) -> str:
@@ -337,7 +417,7 @@ def _cmd_elevation(
     if output != Path("-"):
         gpx.write(output)
         print(f"Added elevation to {input_file} → {output}", file=out)
-        _print_stats(gpx.stats(), out)
+        _print_stats(gpx, out)
         print(f"Updated: {updates} point(s)", file=out)
     else:
         out.write(gpx.to_string())
@@ -365,7 +445,7 @@ def _cmd_insert(
     if output != Path("-"):
         gpx.write(output)
         print(f"Inserted {len(parsed)} point(s) into {input_file} → {output}", file=out)
-        _print_stats(gpx.stats(), out)
+        _print_stats(gpx, out)
     else:
         out.write(gpx.to_string())
 
@@ -401,7 +481,7 @@ def _cmd_fill(
     if output != Path("-"):
         gpx.write(output)
         print(f"Filled {filled} gap(s) from {ref_file} → {output}", file=out)
-        _print_stats(gpx.stats(), out)
+        _print_stats(gpx, out)
     else:
         out.write(gpx.to_string())
 
@@ -427,12 +507,69 @@ def _cmd_trim(
     trim(gpx, start=start, end=end, by_time=by_time, by_distance=by_distance)
 
     if output != Path("-"):
-        new_stats = gpx.stats()
-        removed = orig_stats.points - new_stats.points
-        dist_saved = orig_stats.distance - new_stats.distance
         gpx.write(output)
         print(f"Trimmed {input_file} → {output}", file=out)
-        _print_stats(new_stats, out)
+        new_stats = _print_stats(gpx, out)
+        removed = orig_stats.points - new_stats.points
+        dist_saved = orig_stats.distance - new_stats.distance
         print(f"Removed: {removed} points ({_format_distance(dist_saved)})", file=out)
+    else:
+        out.write(gpx.to_string())
+
+
+def _cmd_clean(
+    input_file: Path,
+    output: Path,
+    outliers: bool,
+    max_distance: float,
+    add_bounds: bool,
+    out: TextIO,
+    stdin: BytesIO | None = None,
+) -> None:
+    """Handle the ``clean`` subcommand."""
+    gpx = _load_gpx(input_file, stdin)
+    gpx.clean(outliers=outliers, max_distance=max_distance, add_bounds=add_bounds)
+    if output != Path("-"):
+        gpx.write(output)
+        print(f"Cleaned {input_file} → {output}", file=out)
+        _print_stats(gpx, out)
+    else:
+        out.write(gpx.to_string())
+
+
+def _cmd_meta(
+    input_file: Path,
+    output: Path,
+    name: str | None,
+    description: str | None,
+    author: str | None,
+    email: str | None,
+    copyright: str | None,
+    keywords: str | None,
+    out: TextIO,
+    stdin: BytesIO | None = None,
+) -> None:
+    """Handle the ``meta`` subcommand."""
+    gpx = _load_gpx(input_file, stdin)
+    meta = gpx.metadata()
+    if meta is None:
+        meta = GPXMetadata()
+    if name is not None:
+        meta.name = name
+    if description is not None:
+        meta.description = description
+    if author is not None:
+        meta.author = author
+    if email is not None:
+        meta.email = email
+    if copyright is not None:
+        meta.copyright = copyright
+    if keywords is not None:
+        meta.keywords = keywords
+    gpx.set_metadata(meta)
+    if output != Path("-"):
+        gpx.write(output)
+        print(f"Updated metadata for {input_file} → {output}", file=out)
+        _print_stats(gpx, out)
     else:
         out.write(gpx.to_string())

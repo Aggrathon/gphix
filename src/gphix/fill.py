@@ -44,7 +44,7 @@ def find_gaps(
 ) -> list[Gap]:
     """Find gaps between consecutive segments."""
     gaps = []
-    for seg_a, seg_b in pairwise(gpx.segments()):
+    for seg_a, seg_b in pairwise(gpx.segments(True)):
         prev = seg_a.last_point()
         next = seg_b.first_point()
         if prev is None or next is None:

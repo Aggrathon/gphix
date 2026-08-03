@@ -9,7 +9,7 @@ from io import BytesIO, StringIO
 from pathlib import Path
 
 from gphix.cli import _format_distance, _format_duration, main
-from gphix.gpx import GPX
+from gphix.gpx import GPX, GPXMetadata
 
 from .utils import Point, create_gpx_file, create_tif_grid, no_np_warn
 
@@ -371,3 +371,45 @@ def test_cmd_fill_selective(tmp_path):
         stdin=_file_to_stdin(gpx_path),
     )
     assert "Filled 3 gap(s)" in buf.getvalue()
+
+
+def test_cmd_clean(tmp_path):
+    """Test clean subcommand: remove empty segments and update bounds."""
+    gpx_path = tmp_path / "input.gpx"
+    create_gpx_file(
+        gpx_path,
+        [
+            Point(48.8, 2.2),
+            Point(48.8001, 2.2001),
+            Point(48.8002, 2.2002),
+            Point(48.85, 2.3),
+        ],
+    )
+    out_path = tmp_path / "cleaned.gpx"
+
+    buf = StringIO()
+    main(["clean", str(gpx_path), "-o", str(out_path), "--bounds"], out=buf)
+    assert "Cleaned" in buf.getvalue()
+    assert len(list(GPX(out_path).points())) == 4
+    buf = StringIO()
+    main(["clean", "-", "--outliers"], out=buf, stdin=_file_to_stdin(out_path))
+    out = buf.getvalue()
+    assert len(out.split("trkpt")) == 4  # one outlier removed
+
+
+def test_cmd_meta(tmp_path):
+    """Test meta subcommand: set metadata fields."""
+    gpx = tmp_path / "input.gpx"
+    create_gpx_file(gpx, metadata=GPXMetadata(name="A", email="B"))
+    out = str(tmp_path / "meta.gpx")
+
+    buf = StringIO()
+    main(
+        ["meta", str(gpx), "-o", out, "--name", "C", "--author", "D", "--email", ""],
+        out=buf,
+    )
+    assert "Updated metadata" in buf.getvalue()
+    assert "Name: C" in buf.getvalue()
+    meta = GPX(out).metadata()
+    assert meta.author == "D"
+    assert meta.email == None

@@ -16,7 +16,7 @@ from gphix.utils import LocalKDTree, haversine, project_to_edge
 GEOSPATIAL_EXT = (".tif", ".tiff", ".img", ".jp2", ".ras", ".dat", ".hgt")
 GPX_EXT = (".gpx",)
 ZIP_EXT = (".zip",)
-TAR_EXT = (".tar", ".gz", ".tgz", ".tar.bz2", ".tar.xz")
+TAR_EXT = (".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz")
 
 
 class DEMFile:

@@ -27,7 +27,7 @@ def trim(
     if by_time and by_distance:
         raise ValueError("Cannot specify both by_time and by_distance")
 
-    segments = gpx.segments()
+    segments = gpx.segments(True)
     if not segments:
         return gpx
 

@@ -4,7 +4,7 @@ import copy
 import xml.etree.ElementTree as ET
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from io import BytesIO
 from os import PathLike
 
@@ -47,6 +47,9 @@ class GPXSegment:
         else:
             self.segment.remove(target.element)
 
+    def __len__(self) -> int:
+        return len(self.segment)
+
 
 @dataclass(slots=True)
 class GPXMetadata:
@@ -54,8 +57,8 @@ class GPXMetadata:
 
     name: str | None = None
     description: str | None = None
-    author_name: str | None = None
-    author_email: str | None = None
+    author: str | None = None
+    email: str | None = None
     copyright: str | None = None
     links: tuple[tuple[str, str, str | None], ...] = ()
     time: datetime | None = None
@@ -80,10 +83,10 @@ class GPXMetadata:
 
         elem(root, "name", self.name)
         elem(root, "desc", self.description)
-        if self.author_name is not None or self.author_email is not None:
+        if self.author is not None or self.email is not None:
             author = ET.SubElement(root, f"{ns}author")
-            elem(author, "name", self.author_name)
-            elem(author, "email", self.author_email)
+            elem(author, "name", self.author)
+            elem(author, "email", self.email)
         elem(root, "copyright", self.copyright)
         for href, text, link_type in self.links:
             link = ET.SubElement(root, f"{ns}link", href=href)
@@ -278,8 +281,8 @@ class GPX:
         return GPXMetadata(
             name=text("name", meta),
             description=text("desc", meta),
-            author_name=author_name,
-            author_email=author_email,
+            author=author_name,
+            email=author_email,
             copyright=text("copyright", meta),
             links=tuple(links),
             time=datetime.fromisoformat(time) if time else None,
@@ -353,7 +356,7 @@ class GPX:
             tracks=track_count,
         )
 
-    def segments(self, sorted: bool = True, routes: bool = False) -> list[GPXSegment]:
+    def segments(self, sorted: bool = False, routes: bool = False) -> list[GPXSegment]:
         """Return `GPXSegment` objects.
 
         Args:
@@ -425,3 +428,83 @@ class GPX:
                     best_cost, best_idx = cost, i
             fixed.insert(best_idx, (sf, sl, segment))
         return [seg for *_, seg in fixed]
+
+    def clean(
+        self,
+        add_bounds: bool = False,
+        outliers: bool = False,
+        max_distance: float = 100.0,
+    ):
+        """Remove empty segments, tracks, outliers, and refresh metadata.
+
+        Args:
+            add_bounds: Create metadata time and coordinate bounds if not existing.
+            outliers: Remove consecutive points farther than *max_distance*.
+            max_distance: Threshold in metres for outlier removal.
+        """
+        for trk in self.root.iterfind("gpx:trk", self.namespaces):
+            for seg in trk.iterfind("gpx:trkseg", self.namespaces):
+                if len(seg) == 0:
+                    trk.remove(seg)
+            if len(trk) == 0:
+                self.root.remove(trk)
+        for rte in self.root.iterfind("gpx:rte", self.namespaces):
+            if len(rte) == 0:
+                self.root.remove(rte)
+
+        if outliers:
+            self._remove_outliers(max_distance)
+
+        meta = self.metadata()
+        if add_bounds and meta is None:
+            meta = GPXMetadata()
+        if meta is not None:
+            add_time = add_bounds or meta.time is not None
+            add_bounds = add_bounds or meta.min_lat is not None
+            if add_bounds:
+                meta.min_lat = float("inf")
+                meta.min_lon = float("inf")
+                meta.max_lat = -float("inf")
+                meta.max_lon = -float("inf")
+            if add_time:
+                orig_time = datetime.max.replace(tzinfo=UTC)
+                meta.time = orig_time
+            if add_bounds or add_time:
+                changed = False
+                for pt in self.points():
+                    changed = True
+                    if add_time and (time := pt.time) is not None:
+                        meta.time = min(meta.time, time)
+                    if add_bounds:
+                        lat, lon = pt.latitude, pt.longitude
+                        meta.min_lat = min(meta.min_lat, lat)
+                        meta.max_lat = max(meta.max_lat, lat)
+                        meta.min_lon = min(meta.min_lon, lon)
+                        meta.max_lon = max(meta.max_lon, lon)
+                if add_time and meta.time == orig_time:
+                    meta.time = None
+                if changed:
+                    self.set_metadata(meta)
+
+    def _remove_outliers(self, max_distance: float) -> None:
+        """Remove consecutive points whose distance exceeds *max_distance*."""
+        for seg in self.segments(False, False):
+            length = len(seg)
+            if length <= 2:
+                continue
+            subs = []
+            for pt in seg.points():
+                p = (pt.latitude, pt.longitude, pt.elevation, pt)
+                if not subs:
+                    subs.append([p])
+                for s in subs:
+                    if distance((s[-1][:-1], p[:-1])) < max_distance:
+                        s.append(p)
+                        break
+                else:
+                    subs.append([p])
+            max_out = 1 + int(length > 100) + int(length > 1000)
+            to_remove = [pt for s in subs if len(s) <= max_out for _, _, _, pt in s]
+            if len(to_remove) <= length / 4:
+                for pt in to_remove:
+                    seg.remove(pt)
