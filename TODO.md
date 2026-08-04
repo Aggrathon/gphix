@@ -19,12 +19,20 @@
   - [x] Metadata 
 - [ ] Web UI
   - [ ] Graphs
-    - [ ] Topdown
+    - [ ] Map
     - [ ] Line (time vs distance, time vs elevation, etc.)
     - [ ] Selectable points
-  - [ ] Stats
-    - [ ] Whole GPX
-    - [ ] Selected point
-  - [ ] UI for the functions
-    - [ ] Preview on the graphs
+    - [ ] Preview function on the graphs
+  - [ ] Functions
+    - [ ] Load
+    - [ ] Merge
+    - [ ] Stats
+      - [ ] Whole GPX
+      - [ ] Selected point
+    - [ ] Clean
+    - [ ] Metadata 
+    - [ ] Insert
+    - [ ] Trim
+    - [ ] Elevation
+    - [ ] Fill
   - [ ] Pyodide (to use the library)
