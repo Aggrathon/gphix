@@ -146,3 +146,32 @@ def flatten[T](nested: list[T | list[T]] | None) -> list[T] | None:
         else:
             flat.append(i)
     return flat
+
+
+def format_distance(meters: float) -> str:
+    if meters >= 1000:
+        return f"{meters / 1000:.2f} km"
+    return f"{meters:.0f} m"
+
+
+def format_duration(seconds: float) -> str:
+    """Return a human-readable duration string."""
+    total = int(seconds)
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    parts = []
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    if secs or not parts:
+        parts.append(f"{secs}s")
+    return " ".join(parts)
+
+
+def format_int(num: int) -> str:
+    if num < 10_000:
+        return str(num)
+    if num < 1_000_000:
+        return f"{num // 1000} {num % 1000:03d}"
+    return f"{num // 1000_000} {(num % 1000_000) // 1000:03d} {num % 1000:03d}"

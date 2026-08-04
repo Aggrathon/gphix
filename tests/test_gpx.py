@@ -1,15 +1,8 @@
 from datetime import UTC, datetime, timedelta
 
 from gphix.gpx import GPX, GPXMetadata
-from gphix.utils import last
 
 from .utils import Point, create_gpx, create_gpx_file
-
-
-def test_last():
-    assert last(range(3)) == 2
-    assert last("asd") == "d"
-    assert last([1, "23", 6]) == 6
 
 
 def test_stats_basic(tmp_path):

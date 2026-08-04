@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TextIO
 
 from gphix.trim import trim
-from gphix.utils import flatten
+from gphix.utils import flatten, format_distance, format_duration
 
 from .elevation import add_elevation_to_gpx
 from .fill import fill_gaps, find_gaps
@@ -321,8 +321,8 @@ def _print_stats(gpx: GPX, out: TextIO, prefix: str = "  ") -> GPXStats:
     stats = gpx.stats()
     print(f"{prefix}Points: {stats.points}", file=out)
     print(f"{prefix}Tracks: {stats.tracks}", file=out)
-    print(f"{prefix}Distance: {_format_distance(stats.distance)}", file=out)
-    print(f"{prefix}Duration: {_format_duration(stats.duration)}", file=out)
+    print(f"{prefix}Distance: {format_distance(stats.distance)}", file=out)
+    print(f"{prefix}Duration: {format_duration(stats.duration)}", file=out)
     if stats.start_time and stats.end_time:
         print(f"{prefix}Start: {stats.start_time.isoformat()}", file=out)
         print(f"{prefix}End: {stats.end_time.isoformat()}", file=out)
@@ -341,27 +341,6 @@ def _print_stats(gpx: GPX, out: TextIO, prefix: str = "  ") -> GPXStats:
             file=out,
         )
     return stats
-
-
-def _format_distance(meters: float) -> str:
-    if meters >= 1000:
-        return f"{meters / 1000:.2f} km"
-    return f"{meters:.0f} m"
-
-
-def _format_duration(seconds: float) -> str:
-    """Return a human-readable duration string."""
-    total = int(seconds)
-    hours, remainder = divmod(total, 3600)
-    minutes, secs = divmod(remainder, 60)
-    parts = []
-    if hours:
-        parts.append(f"{hours}h")
-    if minutes:
-        parts.append(f"{minutes}m")
-    if secs or not parts:
-        parts.append(f"{secs}s")
-    return " ".join(parts)
 
 
 def _parse_points(
@@ -512,7 +491,7 @@ def _cmd_trim(
         new_stats = _print_stats(gpx, out)
         removed = orig_stats.points - new_stats.points
         dist_saved = orig_stats.distance - new_stats.distance
-        print(f"Removed: {removed} points ({_format_distance(dist_saved)})", file=out)
+        print(f"Removed: {removed} points ({format_distance(dist_saved)})", file=out)
     else:
         out.write(gpx.to_string())
 

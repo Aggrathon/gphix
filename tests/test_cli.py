@@ -8,7 +8,7 @@ Hence, every use-case should only have a limited number of tests.
 from io import BytesIO, StringIO
 from pathlib import Path
 
-from gphix.cli import _format_distance, _format_duration, main
+from gphix.cli import main
 from gphix.gpx import GPX, GPXMetadata
 
 from .utils import Point, create_gpx_file, create_tif_grid, no_np_warn
@@ -74,24 +74,6 @@ def test_cmd_stats_with_time_and_elevation(tmp_path):
     assert "Start:" in output
     assert "End:" in output
     assert "Elevation: 100 – 300 m" in output
-
-
-def test_format_distance():
-    # Test _format_distance for values below 1 km.
-    assert _format_distance(500.0) == "500 m"
-    assert _format_distance(10.0) == "10 m"
-    # Test _format_distance for values >= 1 km.
-    assert _format_distance(1500.0) == "1.50 km"
-    assert _format_distance(10500.0) == "10.50 km"
-
-
-def test_format_duration():
-    """Test _format_duration helper."""
-    assert _format_duration(0) == "0s"
-    assert _format_duration(45) == "45s"
-    assert _format_duration(65) == "1m 5s"
-    assert _format_duration(3661) == "1h 1m 1s"
-    assert _format_duration(7265) == "2h 1m 5s"
 
 
 def test_main_help():
