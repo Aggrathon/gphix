@@ -1,5 +1,34 @@
-// ── Helpers ──────────────────────────────────────────────────────
+// ── Event system ──────────────────────────────────────────────────────
+const _listeners = new Map();
+
+function on(event, fn) {
+  const list = _listeners.get(event);
+  if (list) list.push(fn);
+  else _listeners.set(event, [fn]);
+}
+
+function emit(event, data) {
+  for (const fn of _listeners.get(event) ?? []) {
+    try {
+      fn(data);
+    } catch (err) {
+      console.error(`[${event}]`, err);
+    }
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
+
+function showLoading(message = "Loading…") {
+  const el = document.getElementById("loading");
+  el.classList.remove("hidden");
+  document.getElementById("loading-message").textContent = message;
+}
+
+function hideLoading() {
+  document.getElementById("loading").classList.add("hidden");
+}
 
 const container = document.getElementById("toasts");
 function showToast(msg) {
@@ -15,62 +44,162 @@ function showToast(msg) {
   });
 }
 
-// ── State ────────────────────────────────────────────────────────
-const state = {
-  files: [],
-  track: null,
-  selectedPoint: null,
-  activeTab: "data",
-};
-
-// ── Chart setup ──────────────────────────────────────────────────
-function setupCharts() {
-  const chartIds = ["chart-elev", "chart-time-dist", "chart-time-elev"];
-  const placeholder = "Load a GPX file to see charts";
-
-  function drawPlaceholder(canvas) {
-    const ctx = canvas.getContext("2d");
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = canvas.clientWidth * dpr;
-    canvas.height = canvas.clientHeight * dpr;
-    ctx.scale(dpr, dpr);
-    ctx.fillStyle = "#fdfdfd";
-    ctx.fillRect(0, 0, canvas.width / dpr, canvas.height / dpr);
-    ctx.fillStyle = "#aaa";
-    ctx.font = "13px system-ui";
-    ctx.textAlign = "center";
-    ctx.fillText(placeholder, canvas.width / dpr / 2, canvas.height / dpr / 2);
-  }
-
-  chartIds.forEach((id) => {
-    const canvas = document.getElementById(id);
-    if (canvas) drawPlaceholder(canvas);
-  });
-
-  const observer = new ResizeObserver(() => {
-    chartIds.forEach((id) => {
-      const canvas = document.getElementById(id);
-      if (canvas) drawPlaceholder(canvas);
-    });
-  });
-  chartIds.forEach((id) => {
-    const canvas = document.getElementById(id);
-    if (canvas) observer.observe(canvas);
-  });
+function escHtml(s) {
+  const d = document.createElement("div");
+  d.textContent = s;
+  return d.innerHTML;
 }
 
-// ── Map setup ────────────────────────────────────────────────────
-const map = L.map("map").setView([0, 0], 2);
+// ── Pyodide init ─────────────────────────────────────────────────────
+let pyodide = null;
+async function setupPyodide() {
+  try {
+    showLoading("Loading engine…");
+    const py = await loadPyodide();
+    py.FS.mkdirTree("/gphix");
+    py.FS.writeFile("/gphix/__init__.py", '"""GPX file toolbox."""');
+    for (const f of ["utils.py", "gpx.py", "web.py"]) {
+      const resp = await fetch("src/gphix/" + f);
+      py.FS.writeFile("/gphix/" + f, await resp.text());
+    }
+    await py.runPythonAsync(`
+import sys
+sys.path.append("/")
+from gphix import web
+from pyodide.ffi import to_js
+    `);
+    pyodide = py;
+  } catch (err) {
+    showToast("Failed to load Pyodide: " + err.message);
+    console.error(err);
+  } finally {
+    hideLoading();
+  }
+}
+
+// ── Load GPX → emit ─────────────────────────────────────────────────
+async function handleFiles(files) {
+  if (!pyodide || files.length == 0) return;
+  showLoading("Processing GPX…");
+  try {
+    let paths = [];
+    for (const file of files) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      pyodide.FS.writeFile(`/tmp/` + file.name, bytes);
+      paths.push(file.name);
+    }
+    await pyodide.runPythonAsync(
+      `web.load_gpx("/tmp", ${pyodide.toPy(paths)})`,
+    );
+    for (const path of paths) {
+      pyodide.FS.unlink(`/tmp/` + path);
+    }
+    emit("state_changed", null);
+  } catch (err) {
+    showToast("Failed to parse GPX: " + err.message);
+    console.error(err);
+  } finally {
+    hideLoading();
+  }
+}
+
+// ── Stats ────────────────────────────────────────────────────────
+async function renderStats(_) {
+  if (!pyodide) return;
+  const el = document.getElementById("gpx-info");
+  const lines = [];
+  const s = (label, value) =>
+    `<div class="stat"><span>${label}</span><span>${value}</span></div>`;
+
+  const metadata = await pyodide.runPythonAsync("to_js(web.get_metadata())");
+  if (metadata?.name) {
+    lines.push(s("Name", escHtml(metadata.name)));
+    el.innerHTML = lines[0];
+  }
+
+  const stats = await pyodide.runPythonAsync("to_js(web.get_stats())");
+  for (const [label, info] of stats) {
+    lines.push(s(label, info));
+  }
+  if (lines.length == 0) el.innerHTML = "Load a file to see info";
+  else el.innerHTML = lines.join("");
+}
+
+// ── Charts ────────────────────────────────────────────────────────
+function drawPlaceholder(canvas) {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.fillStyle = "#fdfdfd";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#888";
+  ctx.font = "12px system-ui";
+  ctx.textAlign = "center";
+  ctx.fillText(
+    "Load a GPX file to see chart",
+    canvas.width / 2 / dpr,
+    canvas.height / 2 / dpr,
+  );
+}
+
+async function renderCharts(_) {
+  for (const id of ["#chart-elev", "#chart-time-dist", "#chart-time-elev"])
+    drawPlaceholder($(id));
+  return;
+}
+
+// ── Map ──────────────────────────────────────────────────────────────
+let map = null;
 function setupMap() {
+  map = L.map("map").setView([0, 0], 2);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: "\u00a9 OpenStreetMap contributors",
-    referrerPolicy: "origin-when-cross-origin",
+    attribution:
+      '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   }).addTo(map);
 }
 
-const invalidateMap = () => setTimeout(() => map.invalidateSize(), 100);
+let mapGpxLayers = [];
+async function renderMap(_) {
+  if (!map) return;
+  for (const layer of mapGpxLayers) {
+    map.removeLayer(layer);
+  }
+  mapGpxLayers = [];
 
-// ── Tab switching ──────────────────────────────────────────────
+  if (!pyodide) return;
+  const segments = await pyodide.runPythonAsync("to_js(web.get_segments())");
+  if (segments.length == 0) {
+    map.setView([0, 0], 2);
+    return;
+  }
+
+  let bounds = [];
+  for (const points of segments) {
+    const coords = points.map((p) => [p.lat, p.lon]);
+    const trackLayer = L.polyline(coords, {
+      color: "#968068",
+      weight: 3,
+    }).addTo(map);
+    const pointMarkers = L.layerGroup(
+      points.map((p) =>
+        L.circleMarker([p.lat, p.lon], {
+          radius: 3,
+          color: "#16a34a",
+          fillOpacity: 0.6,
+        }),
+      ),
+    ).addTo(map);
+    bounds.push(trackLayer.getBounds().pad(0.1));
+    mapGpxLayers.push(trackLayer);
+    mapGpxLayers.push(pointMarkers);
+  }
+  map.fitBounds(L.latLngBounds(bounds));
+}
+
+// ── Tab switching ────────────────────────────────────────────────────
 function setupTabs() {
   const tabButtons = document.querySelectorAll("#tabs > button");
   const tabContents = document.querySelectorAll(".tab-content");
@@ -83,83 +212,32 @@ function setupTabs() {
       const target = document.querySelector(
         `.tab-content[data-tab="${btn.dataset.tab}"]`,
       );
-      if (target) {
-        target.classList.add("active");
-      }
-      state.activeTab = btn.dataset.tab;
-      invalidateMap();
+      if (target) target.classList.add("active");
+      setTimeout(() => map.invalidateSize(), 100);
     });
   });
 }
 
-// ── Tabs ─────────────────────────────────────────────────────
-const tabConfig = {
-  trim: ["trim-start", "trim-end", "trim-mode"],
-  insert: ["insert-points"],
-  elevation: ["elev-sources", "elev-radius", "elev-overwrite"],
-  fill: ["fill-ref", "fill-min-dist", "fill-min-time"],
-  clean: ["clean-outliers", "clean-max-dist", "clean-bounds"],
-  meta: [
-    "meta-name",
-    "meta-desc",
-    "meta-author",
-    "meta-email",
-    "meta-copyright",
-    "meta-keywords",
-  ],
-};
-
-function setupControls() {
-  const baselines = new Map();
-
-  const getBaseline = (el) =>
-    el.type === "checkbox" || el.type === "radio" ? el.checked : el.value;
-
-  const hasChanges = (tab) =>
-    (tabConfig[tab] || [])
-      .map((id) => document.getElementById(id))
-      .filter(Boolean)
-      .some((el) => getBaseline(el) !== baselines.get(el));
-
-  const refreshApplyButtons = () => {
-    for (const tab of Object.keys(tabConfig)) {
-      const btn = document.getElementById(tab + "-apply");
-      if (btn) btn.disabled = !hasChanges(tab);
-    }
-  };
-
-  for (const [tab, ids] of Object.entries(tabConfig)) {
-    ids.forEach((id) => {
-      const el = document.getElementById(id);
-      if (!el) return;
-      baselines.set(el, getBaseline(el));
-      el.addEventListener("change", refreshApplyButtons);
-      el.addEventListener("input", refreshApplyButtons);
-    });
+// ── File list ────────────────────────────────────────────────────────
+async function updateFileList(_) {
+  if (!pyodide) return;
+  const list = $("#file-list");
+  list.innerHTML += "Processing GPX files...";
+  const files = await pyodide.runPythonAsync("to_js(web.get_files())");
+  if (files.length == 1) list.innerHTML = "<h3>Current GPX File</h3>";
+  else if (files.length > 0) list.innerHTML = "<h3>Merged GPX Files</h3>";
+  else list.innerHTML = "<h3>No files loaded</h3>";
+  for (const f of files) {
+    const li = document.createElement("li");
+    li.textContent = f;
+    list.appendChild(li);
   }
-
-  document
-    .getElementById("elev-add")
-    ?.addEventListener("click", refreshApplyButtons);
-  refreshApplyButtons();
 }
 
-// ── File drop ────────────────────────────────────────────────────
+// ── File drop ────────────────────────────────────────────────────────
 function setupFileDrop() {
   const dropZone = $(".drop-zone");
   const fileInput = $("#file-input");
-  fileInput.multiple = true;
-
-  function handleFiles(files) {
-    state.files = [...state.files, ...Array.from(files)];
-    const list = document.getElementById("file-list");
-    Array.from(files).forEach((f) => {
-      const li = document.createElement("li");
-      li.innerHTML = `<span class="monospace">${f.name}</span>`;
-      list.appendChild(li);
-    });
-    showToast(`Loaded ${files.length} file(s) — skeleton mode, no parsing yet`);
-  }
 
   dropZone.addEventListener("click", () => fileInput.click());
   dropZone.addEventListener("keydown", (e) => {
@@ -187,49 +265,50 @@ function setupFileDrop() {
   });
 }
 
-// ── Trim sliders ─────────────────────────────────────────────────
-function setupTrimSliders() {
-  const startSlider = $("#trim-start");
-  const endSlider = $("#trim-end");
-  const startOutput = $("#trim-start-value");
-  const endOutput = $("#trim-end-value");
-
-  startSlider?.addEventListener("input", () => {
-    if (startOutput) startOutput.textContent = `${startSlider.value}%`;
-  });
-  endSlider?.addEventListener("input", () => {
-    if (endOutput) endOutput.textContent = `${endSlider.value}%`;
-  });
-  startSlider.value = 0;
-  endSlider.value = 0;
+// ── Sliders ─────────────────────────────────────────────────────
+function setupSliders() {
+  const sliders = ["#trim-start", "#trim-end"];
+  for (const id of sliders) {
+    const slider = $(id);
+    const output = $(id + "-value");
+    slider.addEventListener("input", () => {
+      output.textContent = `${slider.value}%`;
+    });
+    slider.value = 0;
+  }
 }
 
-// ── File Buttons ───────────────────────────────────────────────
-function setupFileButtons() {
-  const saveBtn = document.getElementById("btn-save");
-  if (saveBtn)
-    saveBtn.addEventListener("click", () =>
-      showToast("Save — not implemented yet"),
-    );
+// ── State and File buttons ───────────────────────────────────────────
+function setupButtons() {
+  async function onUndoClick() {
+    if (!pyodide) return;
+    await pyodide.runPythonAsync("web.undo()");
+    emit("state_changed", null);
+  }
 
-  const undoBtn = document.getElementById("btn-undo");
-  if (undoBtn)
-    undoBtn.addEventListener("click", () =>
-      showToast("Undo — not implemented yet"),
-    );
+  async function onResetClick() {
+    if (!pyodide) return;
+    await pyodide.runPythonAsync("web.reset()");
+    emit("state_changed", null);
+  }
 
-  const resetBtn = document.getElementById("btn-reset");
-  if (resetBtn)
-    resetBtn.addEventListener("click", () =>
-      showToast("Reset — not implemented yet"),
-    );
+  $("#btn-save").addEventListener("click", () =>
+    showToast("Save — not implemented yet"),
+  );
+  $("#btn-undo").addEventListener("click", onUndoClick);
+  $("#btn-reset").addEventListener("click", onResetClick);
 }
 
-// ── Init ─────────────────────────────────────────────────────────
-setupCharts();
-setupMap();
+// ── Init ─────────────────────────────────────────────────────────────
 setupTabs();
-setupControls();
 setupFileDrop();
-setupTrimSliders();
-setupFileButtons();
+setupSliders();
+setupButtons();
+setupMap();
+setupPyodide();
+renderCharts(null);
+
+on("state_changed", updateFileList);
+on("state_changed", renderStats);
+on("state_changed", renderMap);
+on("state_changed", renderCharts);

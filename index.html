@@ -22,7 +22,7 @@
         <!-- Top pane: info sidebar | map | charts sidebar -->
         <div id="top">
             <aside id="info-panel">
-                <div class="section">
+                <div class="section" style="z-index: 800">
                     <h1>GPhiX</h1>
                     <div class="desc">Fix GPX tracks in your browser.</div>
                     <div class="desc">All processing happens locally.</div>
@@ -30,13 +30,13 @@
                 </div>
                 <div class="section">
                     <h3>GPX Info</h3>
-                    <div id="gpx-info" class="text-muted">Load a file to see info</div>
+                    <div id="gpx-info" class="muted">Load a file to see info</div>
                 </div>
                 <div class="section">
                     <h3>Selected Point</h3>
-                    <div id="selected-point" class="text-muted">Click on a point to see info</div>
+                    <div id="selected-point" class="muted">Click on a point to see info</div>
                 </div>
-                <input type="file" id="file-input" accept=".gpx" hidden />
+                <input type="file" id="file-input" accept=".gpx" multiple hidden />
             </aside>
 
             <div id="map"></div>
@@ -74,7 +74,7 @@
                 <button class="action secondary" id="btn-undo" type="button">Undo</button>
                 <button class="action" id="btn-save" type="button">Save</button>
             </div>
-            <button data-tab="minimize" title="Minimize tabs" type="button">▾</button>
+            <button role="tab" data-tab="minimize" aria-selected="false" title="Minimize tabs" type="button">▾</button>
         </nav>
 
         <!-- Bottom pane (hideable) -->
@@ -85,14 +85,14 @@
                         <div class="drop-zone" aria-label="Drop GPX files here" tabindex="0" role="button">
                             <div class="icon">📂</div>
                             <div>Drag &amp; drop GPX files here</div>
-                            <div class="text-muted">or click to browse.</div>
-                            <div class="text-muted">Multiple files are merged together.</div>
+                            <div class="muted">or click to browse.</div>
+                            <div class="muted">Multiple files are merged together.</div>
                         </div>
                         <div class="row">
                             <button class="action secondary" id="btn-reset" type="button">Reset</button>
                         </div>
                     </div>
-                    <ul class="file-list" id="file-list"></ul>
+                    <ul class="col" id="file-list"><h3>No Files Loaded</h3></ul>
                 </div>
             </div>
 
@@ -243,6 +243,10 @@
             </div>
         </div>
 
+        <div id="loading" class="hidden">
+            <div class="spinner"></div>
+            <div id="loading-message">Loading…</div>
+        </div>
         <div id="toasts" role="region" aria-label="Notifications"></div>
         <script src="app.js"></script>
     </body>

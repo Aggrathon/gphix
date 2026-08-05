@@ -19,15 +19,18 @@
   - [x] Metadata 
 - [ ] Web UI
   - [ ] Graphs
-    - [ ] Map
-    - [ ] Line (time vs distance, time vs elevation, etc.)
+    - [x] Map
+    - [ ] Line plots
+      - [ ] distance over time
+      - [ ] elevation profile
+      - [ ] third?
     - [ ] Selectable points
     - [ ] Preview function on the graphs
   - [ ] Functions
-    - [ ] Load
-    - [ ] Merge
+    - [x] Load
+    - [x] Merge
     - [ ] Stats
-      - [ ] Whole GPX
+      - [x] Whole GPX
       - [ ] Selected point
     - [ ] Clean
     - [ ] Metadata 
@@ -35,4 +38,5 @@
     - [ ] Trim
     - [ ] Elevation
     - [ ] Fill
-  - [ ] Pyodide (to use the library)
+  - [x] Pyodide (to use the library)
+  - [x] Undo
