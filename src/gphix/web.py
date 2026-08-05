@@ -1,19 +1,38 @@
 """Helper functions for the Pyodide powered Web UI."""
 
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from gphix.gpx import GPX
 from gphix.utils import format_distance, format_duration, format_int
+
+TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
+@dataclass(slots=True)
+class Point:
+    lat: float
+    lon: float
+    ele: float | None = None
+    time: datetime | None = None
+
+    def to_dict(self) -> dict[str, str | float | None]:
+        return {
+            "lat": self.lat,
+            "lon": self.lon,
+            "ele": self.ele,
+            "time": self.time.strftime(TIME_FORMAT) if self.time else None,
+        }
 
 
 @dataclass(slots=True)
 class AppState:
     gpx: GPX
     files: list[str]
-    stats: list[tuple[str, str]] | None = None
-    meta: dict | None = None
-    segments: list[list[dict]] | None = None
+    stats: dict[str, str] | None = None
+    meta: dict[str, str | None] | None = None
+    segments: list[list[Point]] | None = None
 
 
 current: AppState | None = None
@@ -27,13 +46,14 @@ def reset():
         current = None
 
 
-def undo():
+def undo() -> bool:
     global current
     if previous:
         current = previous.pop()
     elif current is not None:
         previous.append(current)
         current = None
+    return current is not None
 
 
 def next(state: AppState):
@@ -58,31 +78,30 @@ def load_gpx(root: str, paths: list[str]):
         next(AppState(gpxs[0], files=paths))
 
 
-def get_stats() -> list[tuple[str, str]]:
+def get_stats() -> dict[str, str]:
     if current is None:
-        return []
+        return {}
     if current.stats is None:
         stats = current.gpx.stats()
-        current.stats = [
-            ("points", format_int(stats.points)),
-            ("tracks", format_int(stats.tracks)),
-            ("distance", format_distance(stats.distance)),
-            ("duration", format_duration(stats.duration)),
-        ]
+        current.stats = {
+            "Points": format_int(stats.points),
+            "Tracks": format_int(stats.tracks),
+            "Segments": format_int(len(current.gpx.segments(routes=True))),
+            "Distance": format_distance(stats.distance),
+            "Duration": format_duration(stats.duration),
+        }
         if stats.start_time:
-            current.stats.append(
-                ("Start", stats.start_time.strftime("%Y-%m-%d %H:%M:%S"))
-            )
+            current.stats["Start"] = stats.start_time.strftime(TIME_FORMAT)
         if stats.end_time:
-            current.stats.append(("End", stats.end_time.strftime("%Y-%m-%d %H:%M:%S")))
+            current.stats["End"] = stats.end_time.strftime(TIME_FORMAT)
         if stats.min_elev is not None and stats.max_elev is not None:
-            current.stats.append(
-                ("Elevation", f"{stats.min_elev:.0f} - {stats.max_elev:.0f} m")
+            current.stats["Elevation"] = (
+                f"{stats.min_elev:.0f} - {stats.max_elev:.0f} m"
             )
     return current.stats
 
 
-def get_metadata() -> dict:
+def get_metadata() -> dict[str, str | None]:
     if current is None:
         return {}
     if current.meta is None:
@@ -102,23 +121,38 @@ def get_metadata() -> dict:
     return current.meta
 
 
-def get_segments() -> list[list[dict]]:
+def get_segments() -> list[list[list[float]]]:
     if current is None:
         return []
     if current.segments is None:
         current.segments = [
-            [
-                {
-                    "lat": p.latitude,
-                    "lon": p.longitude,
-                    "ele": p.elevation,
-                    "time": p.time.isoformat() if p.time else None,
-                }
-                for p in seg.points()
-            ]
+            [Point(p.latitude, p.longitude, p.elevation, p.time) for p in seg.points()]
             for seg in current.gpx.segments(True)
         ]
-    return current.segments
+    return [[[p.lat, p.lon] for p in seg] for seg in current.segments]
+
+
+def get_point(seg_idx: int, pt_idx: int) -> dict[str, str | float | None]:
+    if current is None or current.segments is None:
+        return {}
+    return current.segments[seg_idx][pt_idx].to_dict()
+
+
+def get_point_idx(idx: int) -> tuple[int, int] | None:
+    if current is None or not current.segments:
+        return None
+    if idx == -1:
+        return len(current.segments) - 1, len(current.segments[-1]) - 1
+    elif idx == 0:
+        return 0, 0
+    elif idx > 0:
+        for i, seg in enumerate(current.segments):
+            if idx < len(seg):
+                return i, idx
+            idx -= len(seg)
+        return None
+    else:
+        raise NotImplementedError()
 
 
 def get_files() -> list[str]:

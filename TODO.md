@@ -24,14 +24,14 @@
       - [ ] distance over time
       - [ ] elevation profile
       - [ ] third?
-    - [ ] Selectable points
+    - [x] Selectable points
     - [ ] Preview function on the graphs
   - [ ] Functions
     - [x] Load
     - [x] Merge
-    - [ ] Stats
+    - [x] Stats
       - [x] Whole GPX
-      - [ ] Selected point
+      - [x] Selected point
     - [ ] Clean
     - [ ] Metadata 
     - [ ] Insert

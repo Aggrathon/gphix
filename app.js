@@ -21,16 +21,16 @@ function emit(event, data) {
 const $ = (sel) => document.querySelector(sel);
 
 function showLoading(message = "Loading…") {
-  const el = document.getElementById("loading");
+  const el = $("#loading");
   el.classList.remove("hidden");
-  document.getElementById("loading-message").textContent = message;
+  $("#loading-message").textContent = message;
 }
 
 function hideLoading() {
-  document.getElementById("loading").classList.add("hidden");
+  $("#loading").classList.add("hidden");
 }
 
-const container = document.getElementById("toasts");
+const container = $("#toasts");
 function showToast(msg) {
   const el = document.createElement("div");
   el.className = "toast";
@@ -94,7 +94,7 @@ async function handleFiles(files) {
     for (const path of paths) {
       pyodide.FS.unlink(`/tmp/` + path);
     }
-    emit("state_changed", null);
+    emit("state_changed", true);
   } catch (err) {
     showToast("Failed to parse GPX: " + err.message);
     console.error(err);
@@ -106,7 +106,7 @@ async function handleFiles(files) {
 // ── Stats ────────────────────────────────────────────────────────
 async function renderStats(_) {
   if (!pyodide) return;
-  const el = document.getElementById("gpx-info");
+  const el = $("#gpx-info");
   const lines = [];
   const s = (label, value) =>
     `<div class="stat"><span>${label}</span><span>${value}</span></div>`;
@@ -118,9 +118,7 @@ async function renderStats(_) {
   }
 
   const stats = await pyodide.runPythonAsync("to_js(web.get_stats())");
-  for (const [label, info] of stats) {
-    lines.push(s(label, info));
-  }
+  for (const label in stats) lines.push(s(label, stats[label]));
   if (lines.length == 0) el.innerHTML = "Load a file to see info";
   else el.innerHTML = lines.join("");
 }
@@ -154,7 +152,7 @@ async function renderCharts(_) {
 // ── Map ──────────────────────────────────────────────────────────────
 let map = null;
 function setupMap() {
-  map = L.map("map").setView([0, 0], 2);
+  map = L.map("map", { preferCanvas: true }).setView([0, 0], 2);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     attribution:
       '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
@@ -162,6 +160,8 @@ function setupMap() {
 }
 
 let mapGpxLayers = [];
+let selectedMarker = null;
+
 async function renderMap(_) {
   if (!map) return;
   for (const layer of mapGpxLayers) {
@@ -177,26 +177,70 @@ async function renderMap(_) {
   }
 
   let bounds = [];
-  for (const points of segments) {
-    const coords = points.map((p) => [p.lat, p.lon]);
+  for (let s = 0; s < segments.length; s++) {
+    const coords = segments[s];
     const trackLayer = L.polyline(coords, {
       color: "#968068",
       weight: 3,
     }).addTo(map);
-    const pointMarkers = L.layerGroup(
-      points.map((p) =>
-        L.circleMarker([p.lat, p.lon], {
-          radius: 3,
-          color: "#16a34a",
-          fillOpacity: 0.6,
-        }),
-      ),
-    ).addTo(map);
-    bounds.push(trackLayer.getBounds().pad(0.1));
     mapGpxLayers.push(trackLayer);
-    mapGpxLayers.push(pointMarkers);
+    bounds.push(trackLayer.getBounds());
+    for (let i = 0; i < coords.length; i++) {
+      const marker = L.circleMarker(coords[i], {
+        radius: 3,
+        color: "#16a34a",
+        fillOpacity: 0.6,
+      }).addTo(map);
+      marker.on("click", () => emit("point_selected", [s, i]));
+      mapGpxLayers.push(marker);
+    }
   }
-  map.fitBounds(L.latLngBounds(bounds));
+  map.fitBounds(L.latLngBounds(bounds).pad(0.1));
+}
+
+async function onSelectedPointMap(idx) {
+  if (selectedMarker) {
+    map.removeLayer(selectedMarker);
+    selectedMarker = null;
+  }
+  if (idx) {
+    const [seg, pt] = idx;
+    const point = await pyodide.runPythonAsync(
+      `to_js(web.get_point(${seg},${pt}))`,
+    );
+    selectedMarker = L.circleMarker([point.lat, point.lon], {
+      radius: 6,
+      color: "#dc2626",
+      fillOpacity: 1,
+    });
+    selectedMarker.on("click", () => emit("point_selected", null));
+    selectedMarker.addTo(map);
+  }
+}
+
+async function onSelectedPointStats(idx) {
+  const el = $("#selected-point");
+  if (!idx) {
+    el.innerHTML = '<span class="muted">Click on a point to see info</span>';
+    return;
+  }
+  const [seg, pt] = idx;
+  const point = await pyodide.runPythonAsync(
+    `to_js(web.get_point(${seg},${pt}))`,
+  );
+  const s = (label, value) =>
+    `<div class="stat"><span>${label}</span><span>${value}</span></div>`;
+  el.innerHTML = [
+    s("Latitude", point.lat.toFixed(5)),
+    s("Longitude", point.lon.toFixed(5)),
+    s(
+      "Elevation",
+      (point.ele != null ? point.ele.toFixed(1) : "\u2014") + " m",
+    ),
+    s("Time", point.time || "\u2014"),
+    s("Segment", seg + 1),
+    s("Point", pt + 1),
+  ].join("");
 }
 
 // ── Tab switching ────────────────────────────────────────────────────
@@ -209,9 +253,7 @@ function setupTabs() {
       tabButtons.forEach((b) => b.classList.remove("active"));
       tabContents.forEach((c) => c.classList.remove("active"));
       btn.classList.add("active");
-      const target = document.querySelector(
-        `.tab-content[data-tab="${btn.dataset.tab}"]`,
-      );
+      const target = $(`.tab-content[data-tab="${btn.dataset.tab}"]`);
       if (target) target.classList.add("active");
       setTimeout(() => map.invalidateSize(), 100);
     });
@@ -282,14 +324,28 @@ function setupSliders() {
 function setupButtons() {
   async function onUndoClick() {
     if (!pyodide) return;
-    await pyodide.runPythonAsync("web.undo()");
-    emit("state_changed", null);
+    const hasGpx = await pyodide.runPythonAsync("to_js(web.undo())");
+    emit("state_changed", hasGpx);
   }
 
   async function onResetClick() {
     if (!pyodide) return;
     await pyodide.runPythonAsync("web.reset()");
-    emit("state_changed", null);
+    emit("state_changed", false);
+  }
+
+  async function onFirstClick() {
+    if (!pyodide) return;
+    const point = await pyodide.runPythonAsync("to_js(web.get_point_idx(0))");
+    emit("point_selected", point);
+    if (point) $("#btn-first").disabled = true;
+  }
+
+  async function onLastClick() {
+    if (!pyodide) return;
+    const point = await pyodide.runPythonAsync("to_js(web.get_point_idx(-1))");
+    emit("point_selected", point);
+    if (point) $("#btn-last").disabled = true;
   }
 
   $("#btn-save").addEventListener("click", () =>
@@ -297,6 +353,18 @@ function setupButtons() {
   );
   $("#btn-undo").addEventListener("click", onUndoClick);
   $("#btn-reset").addEventListener("click", onResetClick);
+  $("#btn-first").addEventListener("click", onFirstClick);
+  $("#btn-last").addEventListener("click", onLastClick);
+}
+
+function showPointSelection(show) {
+  if (show) $("#select-point").classList.remove("hidden");
+  else $("#select-point").classList.add("hidden");
+}
+
+function enablePointSelection(_) {
+  $("#btn-first").disabled = false;
+  $("#btn-last").disabled = false;
 }
 
 // ── Init ─────────────────────────────────────────────────────────────
@@ -312,3 +380,8 @@ on("state_changed", updateFileList);
 on("state_changed", renderStats);
 on("state_changed", renderMap);
 on("state_changed", renderCharts);
+on("state_changed", showPointSelection);
+on("state_changed", (_) => emit("point_selected", null));
+on("point_selected", onSelectedPointMap);
+on("point_selected", onSelectedPointStats);
+on("point_selected", enablePointSelection);
