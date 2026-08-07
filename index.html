@@ -46,7 +46,7 @@
                 <div class="section">
                     <h3>Selected Point</h3>
                     <div id="selected-point" class="muted">Click on a point to see info</div>
-                    <div class="row hidden" id="select-point">
+                    <div class="row" id="select-point" hidden>
                         <button id="btn-first" class="action secondary">First</button>
                         <button id="btn-last" class="action secondary">Last</button>
                     </div>
@@ -69,18 +69,16 @@
         </div>
 
         <!-- Tab bar -->
-        <nav id="tabs" role="tablist" aria-label="Tools">
-            <button role="tab" aria-selected="true" id="tab-data" data-tab="data" class="active" type="button">
-                Data
-            </button>
+        <nav id="tabs" role="tablist" aria-label="Tabs">
+            <button role="tab" aria-selected="true" id="tab-data" data-tab="data" type="button">Data</button>
+            <button role="tab" aria-selected="false" id="tab-meta" data-tab="meta" type="button">Metadata</button>
+            <button role="tab" aria-selected="false" id="tab-clean" data-tab="clean" type="button">Clean</button>
             <button role="tab" aria-selected="false" id="tab-trim" data-tab="trim" type="button">Trim</button>
             <button role="tab" aria-selected="false" id="tab-insert" data-tab="insert" type="button">Insert</button>
             <button role="tab" aria-selected="false" id="tab-elevation" data-tab="elevation" type="button">
                 Elevation
             </button>
             <button role="tab" aria-selected="false" id="tab-fill" data-tab="fill" type="button">Gaps</button>
-            <button role="tab" aria-selected="false" id="tab-clean" data-tab="clean" type="button">Clean</button>
-            <button role="tab" aria-selected="false" id="tab-meta" data-tab="meta" type="button">Metadata</button>
             <div class="tab-actions">
                 <button class="action secondary" id="btn-undo" type="button">Undo</button>
                 <button class="action" id="btn-save" type="button">Save</button>
@@ -90,7 +88,7 @@
 
         <!-- Bottom pane (hideable) -->
         <div id="bottom">
-            <div class="tab-content active" data-tab="data" role="tabpanel" aria-labelledby="tab-data">
+            <div class="tab-content" data-tab="data" role="tabpanel" aria-labelledby="tab-data">
                 <div class="row">
                     <div class="col">
                         <div class="drop-zone" aria-label="Drop GPX files here" tabindex="0" role="button">
@@ -107,7 +105,7 @@
                 </div>
             </div>
 
-            <div class="tab-content" data-tab="trim" role="tabpanel" aria-labelledby="tab-trim">
+            <div class="tab-content" data-tab="trim" role="tabpanel" aria-labelledby="tab-trim" hidden>
                 <fieldset>
                     <legend>Trim Ends</legend>
                     <div class="field">
@@ -134,7 +132,7 @@
                 </div>
             </div>
 
-            <div class="tab-content" data-tab="insert" role="tabpanel" aria-labelledby="tab-insert">
+            <div class="tab-content" data-tab="insert" role="tabpanel" aria-labelledby="tab-insert" hidden>
                 <fieldset>
                     <legend>Add a New Track</legend>
                     <div class="field">
@@ -151,7 +149,7 @@
                 </div>
             </div>
 
-            <div class="tab-content" data-tab="elevation" role="tabpanel" aria-labelledby="tab-elevation">
+            <div class="tab-content" data-tab="elevation" role="tabpanel" aria-labelledby="tab-elevation" hidden>
                 <fieldset>
                     <legend>Insert Elevation</legend>
                     <div class="field">
@@ -179,7 +177,7 @@
                 </div>
             </div>
 
-            <div class="tab-content" data-tab="fill" role="tabpanel" aria-labelledby="tab-fill">
+            <div class="tab-content" data-tab="fill" role="tabpanel" aria-labelledby="tab-fill" hidden>
                 <fieldset>
                     <legend>Fill Gaps Between Segments</legend>
                     <div class="field">
@@ -208,7 +206,7 @@
                 </div>
             </div>
 
-            <div class="tab-content" data-tab="clean" role="tabpanel" aria-labelledby="tab-clean">
+            <div class="tab-content" data-tab="clean" role="tabpanel" aria-labelledby="tab-clean" hidden>
                 <fieldset>
                     <legend>Clean Empty Tracks</legend>
                     <label class="field" for="clean-outliers">
@@ -230,7 +228,7 @@
                 </div>
             </div>
 
-            <div class="tab-content" data-tab="meta" role="tabpanel" aria-labelledby="tab-meta">
+            <div class="tab-content" data-tab="meta" role="tabpanel" aria-labelledby="tab-meta" hidden>
                 <fieldset>
                     <legend>Edit Metadata</legend>
                     <div class="field"><label for="meta-name">Name</label><input type="text" id="meta-name" /></div>
@@ -254,7 +252,7 @@
             </div>
         </div>
 
-        <div id="loading" class="hidden">
+        <div id="loading" hidden>
             <div class="spinner"></div>
             <div id="loading-message">Loading…</div>
         </div>

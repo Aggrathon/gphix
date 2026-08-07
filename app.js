@@ -21,13 +21,12 @@ function emit(event, data) {
 const $ = (sel) => document.querySelector(sel);
 
 function showLoading(message = "Loading…") {
-  const el = $("#loading");
-  el.classList.remove("hidden");
+  $("#loading").hidden = false;
   $("#loading-message").textContent = message;
 }
 
 function hideLoading() {
-  $("#loading").classList.add("hidden");
+  $("#loading").hidden = true;
 }
 
 const container = $("#toasts");
@@ -55,7 +54,7 @@ function formatDistance(val) {
   return (val / 1000).toFixed(2) + " km";
 }
 
-// ── Pyodide init ─────────────────────────────────────────────────────
+// ── Pyodide ─────────────────────────────────────────────────────
 let pyodide = null;
 async function setupPyodide() {
   try {
@@ -82,7 +81,11 @@ from pyodide.ffi import to_js
   }
 }
 
-// ── Load GPX → emit ─────────────────────────────────────────────────
+async function selectPoint(seg, idx) {
+  const point = await pyodide.runPythonAsync(`to_js(get_point(${seg},${idx}))`);
+  emit("point_selected", point);
+}
+
 async function handleFiles(files) {
   if (!pyodide || files.length == 0) return;
   showLoading("Processing GPX…");
@@ -107,7 +110,20 @@ async function handleFiles(files) {
 }
 
 // ── Stats ────────────────────────────────────────────────────────
-async function renderStats(_) {
+function setupStats() {
+  $("#btn-first").addEventListener("click", () => selectPoint(0, ""));
+  $("#btn-last").addEventListener("click", async () => {
+    await selectPoint(-1, "");
+    $("#btn-last").disabled = true;
+  });
+
+  on("state_changed", onShowStats);
+  on("state_changed", (show) => ($("#select-point").hidden = !show));
+  on("point_selected", onSelectedPointStats);
+  on("point_selected", enablePointSelection);
+}
+
+async function onShowStats(_) {
   if (!pyodide) return;
   const el = $("#gpx-info");
   const lines = [];
@@ -130,10 +146,35 @@ async function renderStats(_) {
   else el.innerHTML = lines.join("");
 }
 
+async function onSelectedPointStats(point) {
+  const el = $("#selected-point");
+  if (!point) {
+    el.innerHTML = '<span class="muted">Click on a point to see info</span>';
+    return;
+  }
+  const s = (label, value) =>
+    `<div class="stat"><span>${label}</span><span>${value}</span></div>`;
+  el.innerHTML = [
+    s("Latitude", point.lat.toFixed(5)),
+    s("Longitude", point.lon.toFixed(5)),
+    s("Distance", formatDistance(point.dist)),
+    s("Elevation", point.ele != null ? point.ele.toFixed(1) + " m" : "N/A"),
+    s("Time", point.time ? new Date(point.time).toLocaleString() : "N/A"),
+    s("Segment", point.seg + 1),
+    s("Point", point.idx + 1),
+  ].join("");
+}
+
+function enablePointSelection(point) {
+  $("#btn-first").disabled = point && point.seg == 0 && point.idx == 0;
+  $("#btn-last").disabled = false;
+}
+
 // ── Plots ────────────────────────────────────────────────────────
 let tdPlot = null;
 let edPlot = null;
 let sdPlot = null;
+
 function setupPlots() {
   function getSize(el) {
     return {
@@ -186,11 +227,13 @@ function setupPlots() {
     value: (_, v) => (v == null ? "" : v.toFixed(1) + " m"),
   });
 
-  window.addEventListener("resize", async (e) => {
+  on("resize", async (_) => {
     await tdPlot.setSize(getSize($("#plot-time-dist")));
     await edPlot.setSize(getSize($("#plot-elev-dist")));
     if (sdPlot != null) drawPlotPoint(sdPlot);
   });
+  on("state_changed", renderPlots);
+  on("point_selected", onSelectedPointPlot);
 }
 
 function drawPlotPoint(idx) {
@@ -236,6 +279,9 @@ function setupMap() {
     attribution:
       '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   }).addTo(map);
+  on("resize", (_) => setTimeout(map.invalidateSize, 100));
+  on("state_changed", renderMap);
+  on("point_selected", onSelectedPointMap);
 }
 
 let mapGpxLayers = [];
@@ -277,11 +323,6 @@ async function renderMap(_) {
   map.fitBounds(L.latLngBounds(bounds).pad(0.1));
 }
 
-async function selectPoint(seg, idx) {
-  const point = await pyodide.runPythonAsync(`to_js(get_point(${seg},${idx}))`);
-  emit("point_selected", point);
-}
-
 async function onSelectedPointMap(point) {
   if (selectedMarker) {
     map.removeLayer(selectedMarker);
@@ -298,25 +339,6 @@ async function onSelectedPointMap(point) {
   }
 }
 
-async function onSelectedPointStats(point) {
-  const el = $("#selected-point");
-  if (!point) {
-    el.innerHTML = '<span class="muted">Click on a point to see info</span>';
-    return;
-  }
-  const s = (label, value) =>
-    `<div class="stat"><span>${label}</span><span>${value}</span></div>`;
-  el.innerHTML = [
-    s("Latitude", point.lat.toFixed(5)),
-    s("Longitude", point.lon.toFixed(5)),
-    s("Distance", formatDistance(point.dist)),
-    s("Elevation", point.ele != null ? point.ele.toFixed(1) + " m" : "N/A"),
-    s("Time", point.time ? new Date(point.time).toLocaleString() : "N/A"),
-    s("Segment", point.seg + 1),
-    s("Point", point.idx + 1),
-  ].join("");
-}
-
 // ── Tab switching ────────────────────────────────────────────────────
 function setupTabs() {
   const tabButtons = document.querySelectorAll("#tabs > button");
@@ -324,17 +346,17 @@ function setupTabs() {
 
   tabButtons.forEach((btn) => {
     btn.addEventListener("click", () => {
-      tabButtons.forEach((b) => b.classList.remove("active"));
-      tabContents.forEach((c) => c.classList.remove("active"));
-      btn.classList.add("active");
+      tabButtons.forEach((b) => (b.ariaSelected = false));
+      tabContents.forEach((c) => (c.hidden = true));
+      btn.ariaSelected = true;
       const target = $(`.tab-content[data-tab="${btn.dataset.tab}"]`);
-      if (target) target.classList.add("active");
-      setTimeout(() => map.invalidateSize(), 100);
+      if (target) target.hidden = false;
+      emit("resize", null);
     });
   });
 }
 
-// ── File list ────────────────────────────────────────────────────────
+// ── Files ────────────────────────────────────────────────────────
 async function updateFileList(_) {
   if (!pyodide) return;
   const list = $("#file-list");
@@ -350,7 +372,6 @@ async function updateFileList(_) {
   }
 }
 
-// ── File drop ────────────────────────────────────────────────────────
 function setupFileDrop() {
   const dropZone = $(".drop-zone");
   const fileInput = $("#file-input");
@@ -379,6 +400,8 @@ function setupFileDrop() {
     dropZone.classList.remove("dragover");
     handleFiles(e.dataTransfer.files);
   });
+
+  on("state_changed", updateFileList);
 }
 
 // ── Sliders ─────────────────────────────────────────────────────
@@ -408,28 +431,11 @@ function setupButtons() {
     emit("state_changed", false);
   }
 
-  async function onLastClick() {
-    await selectPoint(-1, "");
-    $("#btn-last").disabled = true;
-  }
-
   $("#btn-save").addEventListener("click", () =>
     showToast("Save — not implemented yet"),
   );
   $("#btn-undo").addEventListener("click", onUndoClick);
   $("#btn-reset").addEventListener("click", onResetClick);
-  $("#btn-first").addEventListener("click", () => selectPoint(0, ""));
-  $("#btn-last").addEventListener("click", onLastClick);
-}
-
-function showPointSelection(show) {
-  if (show) $("#select-point").classList.remove("hidden");
-  else $("#select-point").classList.add("hidden");
-}
-
-function enablePointSelection(point) {
-  $("#btn-first").disabled = point && point.seg == 0 && point.idx == 0;
-  $("#btn-last").disabled = false;
 }
 
 // ── Init ─────────────────────────────────────────────────────────────
@@ -437,17 +443,10 @@ setupTabs();
 setupFileDrop();
 setupSliders();
 setupButtons();
+setupStats();
 setupMap();
 setupPyodide();
 setupPlots();
 
-on("state_changed", updateFileList);
-on("state_changed", renderStats);
-on("state_changed", renderMap);
-on("state_changed", renderPlots);
-on("state_changed", showPointSelection);
 on("state_changed", (_) => emit("point_selected", null));
-on("point_selected", onSelectedPointMap);
-on("point_selected", onSelectedPointStats);
-on("point_selected", onSelectedPointPlot);
-on("point_selected", enablePointSelection);
+window.addEventListener("resize", (e) => emit("resize", null));
