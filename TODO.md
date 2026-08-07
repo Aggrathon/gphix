@@ -20,9 +20,9 @@
 - [ ] Web UI
   - [ ] Graphs
     - [x] Map
-    - [ ] Line plots
-      - [ ] distance over time
-      - [ ] elevation profile
+    - [x] Line plots
+      - [x] distance over time
+      - [x] elevation profile
       - [ ] third?
     - [x] Selectable points
     - [ ] Preview function on the graphs
@@ -32,8 +32,8 @@
     - [x] Stats
       - [x] Whole GPX
       - [x] Selected point
+    - [ ] Metadata
     - [ ] Clean
-    - [ ] Metadata 
     - [ ] Insert
     - [ ] Trim
     - [ ] Elevation

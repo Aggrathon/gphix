@@ -10,16 +10,27 @@
             integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
             crossorigin=""
         />
+        <link
+            rel="stylesheet"
+            href="https://unpkg.com/uplot@1.6.32/dist/uPlot.min.css"
+            integrity="sha256-32MMao1vjur/JktQ9zzlsRT2Rv/ZoLt08EmwoAE1+gQ="
+            crossorigin=""
+        />
         <link rel="stylesheet" href="styles.css" />
         <script
             src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
             integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
             crossorigin=""
         ></script>
+        <script
+            src="https://unpkg.com/uplot@1.6.32/dist/uPlot.iife.min.js"
+            integrity="sha256-GcjUxq2Ikpp59K5J1vcWFWbf0Lo9FcxJXpdPeH63jx8="
+            crossorigin=""
+        ></script>
         <script src="https://cdn.jsdelivr.net/pyodide/v314.0.3/full/pyodide.js"></script>
     </head>
     <body>
-        <!-- Top pane: info sidebar | map | charts sidebar -->
+        <!-- Top pane: info sidebar | map | plots sidebar -->
         <div id="top">
             <aside id="info-panel">
                 <div class="section" style="z-index: 800">
@@ -45,18 +56,14 @@
 
             <div id="map"></div>
 
-            <aside id="charts-panel">
-                <div class="chart">
+            <aside id="plot-panel">
+                <div class="plot">
                     <h3>Time vs Distance</h3>
-                    <canvas id="chart-time-dist"></canvas>
+                    <div id="plot-time-dist"></div>
                 </div>
-                <div class="chart">
+                <div class="plot">
                     <h3>Elevation Profile</h3>
-                    <canvas id="chart-elev"></canvas>
-                </div>
-                <div class="chart">
-                    <h3>Time vs Elevation</h3>
-                    <canvas id="chart-time-elev"></canvas>
+                    <div id="plot-elev-dist"></div>
                 </div>
             </aside>
         </div>

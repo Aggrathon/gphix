@@ -112,9 +112,9 @@ body {
     overflow-y: auto;
 }
 
-#charts-panel {
+#plot-panel {
     min-width: min(400px, 38vw);
-    max-width: 30%;
+    max-width: 33%;
     flex: 0.4;
     border-left: 1px solid var(--border);
 }
@@ -254,6 +254,7 @@ h3 {
     letter-spacing: 0.4px;
     color: var(--text-secondary);
     margin-bottom: var(--gap-md);
+    text-align: center;
 }
 
 .desc {
@@ -268,7 +269,7 @@ h3 {
     border-bottom: 1px solid var(--border);
 }
 
-#info-panel .stat {
+.stat {
     display: flex;
     justify-content: space-between;
     gap: var(--gap-md);
@@ -276,12 +277,12 @@ h3 {
     padding: var(--gap-sm) 0;
 }
 
-#info-panel .stat span:first-child {
+.stat span:first-child {
     color: var(--text-secondary);
     flex-shrink: 0;
 }
 
-#info-panel .stat span:last-child {
+.stat span:last-child {
     text-align: right;
     font-weight: 500;
 }
@@ -291,24 +292,20 @@ h3 {
     margin-top: var(--gap-md);
 }
 
-.chart {
+.plot {
     display: flex;
     flex-direction: column;
     flex: 1;
     min-height: 0;
     border-bottom: 1px solid var(--border);
+    padding: var(--gap-sm);
 }
 
-.chart:last-of-type {
+.plot:last-of-type {
     border-bottom: none;
 }
 
-.chart h3 {
-    text-align: center;
-    padding-top: var(--gap-sm);
-}
-
-.chart canvas {
+.plot div {
     flex: 1;
     min-height: 0;
 }
