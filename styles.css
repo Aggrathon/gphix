@@ -3,7 +3,7 @@
     --bg-bar: #f4f6f0;
     --bg-hover: #e8e8e8;
     --bg-active: #fff;
-    --bg-input: #f0fdf4;
+    --bg-disabled: #eee;
     --border: #ccc;
     --text-primary: #1a1a1a;
     --text-secondary: #888;
@@ -234,6 +234,10 @@ legend {
     max-width: 200px;
 }
 
+input:disabled {
+    background-color: var(--bg-disabled);
+}
+
 /* ── Sidebars ───────────────────────────────────────────────────── */
 aside {
     display: flex;
@@ -415,7 +419,7 @@ h3 {
 .drop-zone.dragover,
 .drop-zone:focus-visible {
     border-color: var(--accent);
-    background: var(--bg-input);
+    background: var(--bg-hover);
 }
 
 .drop-zone .icon {

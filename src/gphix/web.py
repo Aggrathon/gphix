@@ -1,10 +1,11 @@
 """Helper functions for the Pyodide powered Web UI."""
 
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from gphix.gpx import GPX
+from gphix.gpx import GPX, GPXMetadata
 from gphix.utils import (
     cum_distance,
     distance,
@@ -65,12 +66,14 @@ def undo() -> bool:
     return current is not None
 
 
-def next(state: AppState):
+def next(state: AppState | GPX):
     global current
     if current is None:
         previous.clear()
     else:
         previous.append(current)
+    if not isinstance(state, AppState):
+        state = AppState(state, current.files if current else [])
     current = state
 
 
@@ -204,3 +207,20 @@ def get_files() -> list[str]:
         return []
     else:
         return current.files
+
+
+def set_metadata(
+    name: str, description: str, author: str, email: str, copyright: str, keywords: str
+):
+    if current is None:
+        return
+    meta = current.gpx.metadata() or GPXMetadata()
+    meta.name = name or None
+    meta.description = description or None
+    meta.author = author or None
+    meta.email = email or None
+    meta.copyright = copyright or None
+    meta.keywords = keywords or None
+    gpx = deepcopy(current.gpx)
+    gpx.set_metadata(meta)
+    next(gpx)

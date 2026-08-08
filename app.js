@@ -123,9 +123,12 @@ function setupStats() {
   on("point_selected", enablePointSelection);
 }
 
-async function onShowStats(_) {
-  if (!pyodide) return;
+async function onShowStats(hasGpx) {
   const el = $("#gpx-info");
+  if (!hasGpx || !pyodide) {
+    el.innerHTML = "Load a file to see info";
+    return;
+  }
   const lines = [];
   const s = (label, value) =>
     `<div class="stat"><span>${label}</span><span>${value}</span></div>`;
@@ -417,6 +420,45 @@ function setupSliders() {
   }
 }
 
+// ── Metadata ─────────────────────────────────────────────────────────
+const metadataFields = [
+  "name",
+  "description",
+  "author",
+  "email",
+  "copyright",
+  "keywords",
+];
+async function loadMetadata(hasGpx) {
+  let meta;
+  if (!pyodide || !hasGpx) meta = {};
+  else meta = await pyodide.runPythonAsync("to_js(get_metadata())");
+  for (const field of metadataFields) {
+    const mf = $("#meta-" + field);
+    mf.value = meta[field] ?? "";
+    mf.disabled = !hasGpx;
+  }
+  $("#meta-apply").disabled = true;
+}
+
+function setupMetadata() {
+  loadMetadata(false);
+  for (const field of metadataFields) {
+    $("#meta-" + field).addEventListener("input", () => {
+      $("#meta-apply").disabled = false;
+    });
+  }
+  $("#meta-apply").addEventListener("click", async () => {
+    if (!pyodide) return;
+    const values = {};
+    for (const field of metadataFields)
+      values[field] = $("#meta-" + field).value;
+    await pyodide.runPythonAsync(`set_metadata(**${pyodide.toPy(values)})`);
+    emit("state_changed", true);
+  });
+  on("state_changed", loadMetadata);
+}
+
 // ── State and File buttons ───────────────────────────────────────────
 function setupButtons() {
   async function onUndoClick() {
@@ -445,6 +487,7 @@ setupSliders();
 setupButtons();
 setupStats();
 setupMap();
+setupMetadata();
 setupPyodide();
 setupPlots();
 
