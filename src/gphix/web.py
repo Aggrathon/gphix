@@ -248,3 +248,17 @@ def apply_clean(
 ):
     if gpx := clone_next():
         gpx.clean(min_size, add_bounds, outliers, max_distance, max_time)
+
+
+def insert_points(rows: list[dict[str, str | float]]) -> None:
+    """Add all rows as a single new track."""
+    if gpx := clone_next():
+        builder = gpx.add_track()
+        for row in rows:
+            lat = float(row["lat"])
+            lon = float(row["lon"])
+            ele = row.get("ele")
+            time = row.get("time")
+            time = datetime.fromisoformat(time) if time else None  # type:ignore
+            ele = float(ele) if ele is not None and ele != "" else None
+            builder.add_point(lat, lon, ele, time)

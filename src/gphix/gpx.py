@@ -132,7 +132,13 @@ class TrackBuilder:
         self._namespaces = namespaces
         self._uri = uri
 
-    def add_point(self, lat: float, lon: float, ele: float | None = None) -> GPXPoint:
+    def add_point(
+        self,
+        lat: float,
+        lon: float,
+        ele: float | None = None,
+        time: datetime | None = None,
+    ) -> GPXPoint:
         """Add a point to this track segment and return its wrapper."""
         pt = ET.SubElement(
             self._segment, f"{{{self._uri}}}trkpt", lat=str(lat), lon=str(lon)
@@ -140,9 +146,16 @@ class TrackBuilder:
         point = GPXPoint(pt, self._uri, self._namespaces)
         if ele is not None:
             point.elevation = ele
+        if time is not None:
+            point.time = time
         return point
 
-    def add_points(self, *coords: tuple[float, ...]) -> TrackBuilder:
+    def add_points(
+        self,
+        *coords: tuple[float, float]
+        | tuple[float, float, float | None]
+        | tuple[float, float, float | None, datetime | None],
+    ) -> TrackBuilder:
         """Call add_point multiple times."""
         for coord in coords:
             self.add_point(*coord)

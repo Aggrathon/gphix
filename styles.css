@@ -9,10 +9,12 @@
     --text-secondary: #888;
     --accent: #16a34a;
     --accent-hover: #15803d;
-    --secondary: #968068;
-    --secondary-hover: #85705a;
-    --alert: #dc2626;
-    --alert-hover: #d02020;
+    --secondary: #A36C15;
+    --secondary-hover: #805511;
+    --tertiary: #7C1BD1;
+    --tertiary-hover: #6115A3;
+    --alert: #D1241B;
+    --alert-hover: #A31B15;
     --font-sm: 12px;
     --font-md: 14px;
     --font-lg: 28px;
@@ -86,7 +88,7 @@ body {
 }
 
 [hidden] {
-  display:none !important;
+    display: none !important;
 }
 
 /* ── Layout ─────────────────────────────────────────────────────── */
@@ -99,6 +101,7 @@ body {
 }
 
 #bottom {
+    background-color: var(--bg-page);
     max-height: 50%;
     overflow-y: auto;
     border-top: 1px solid var(--border);
@@ -219,9 +222,9 @@ legend {
     font-size: var(--font-md);
 }
 
-.field input,
-.field select,
-.field textarea {
+input,
+select,
+textarea {
     flex: 1;
     padding: var(--gap-sm) var(--gap-md);
     border: 1px solid var(--border);
@@ -297,6 +300,7 @@ h3 {
 }
 
 .plot {
+    background-color: var(--bg-page);
     display: flex;
     flex-direction: column;
     flex: 1;
@@ -370,7 +374,6 @@ h3 {
     }
 }
 
-
 /* ── Toast notifications ───────────────────────────────────────── */
 #toasts {
     position: fixed;
@@ -419,10 +422,66 @@ h3 {
 .drop-zone.dragover,
 .drop-zone:focus-visible {
     border-color: var(--accent);
-    background: var(--bg-hover);
+    background: var(--bg-bar);
 }
 
 .drop-zone .icon {
     font-size: 32px;
     margin-bottom: var(--gap-md);
+}
+
+/* ── Point table ──────────────────────────────────────────────────── */
+#point-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: var(--gap-lg);
+    font-size: var(--font-sm);
+}
+
+th {
+    text-align: left;
+    font-size: var(--font-sm);
+    color: var(--text-secondary);
+    padding: var(--gap-md);
+    margin-bottom: var(--gap-md);
+    border-bottom: 2px solid var(--border);
+}
+
+td {
+    padding: var(--gap-sm);
+    vertical-align: middle;
+}
+
+td input {
+    width: 100%;
+}
+
+ tr:empty:not(:last-child) {
+     display: none;
+ }
+
+.btn-icon {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    color: var(--text-secondary);
+    padding: 4px 6px;
+    border-radius: var(--radius-sm);
+    line-height: 1;
+}
+
+.btn-icon:hover:not(:disabled) {
+    color: #fff;
+    background: var(--accent-hover);
+}
+
+.btn-icon:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.btn-icon.danger:hover {
+    color: #fff;
+    background: var(--alert-hover);
 }

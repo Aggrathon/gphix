@@ -19,6 +19,7 @@ function emit(event, data) {
 
 // ── Helpers ───────────────────────────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
+let selectedPoint = null;
 
 function showLoading(message = "Loading…") {
   $("#loading").hidden = false;
@@ -52,6 +53,12 @@ function escHtml(s) {
 function formatDistance(val) {
   if (val < 1000) return val.toFixed(1) + " m";
   return (val / 1000).toFixed(2) + " km";
+}
+
+function formatLocalTime(time) {
+  return new Date(time.getTime() - time.getTimezoneOffset() * 60 * 1000)
+    .toISOString()
+    .slice(0, 19)
 }
 
 // ── Pyodide ─────────────────────────────────────────────────────
@@ -158,8 +165,8 @@ async function onSelectedPointStats(point) {
   const s = (label, value) =>
     `<div class="stat"><span>${label}</span><span>${value}</span></div>`;
   el.innerHTML = [
-    s("Latitude", point.lat.toFixed(6)),
-    s("Longitude", point.lon.toFixed(6)),
+    s("Latitude", point.lat.toFixed(5)),
+    s("Longitude", point.lon.toFixed(5)),
     s("Distance", formatDistance(point.dist)),
     s("Elevation", point.ele != null ? point.ele.toFixed(1) + " m" : "N/A"),
     s("Time", point.time ? new Date(point.time).toLocaleString() : "N/A"),
@@ -285,10 +292,13 @@ function setupMap() {
   on("resize", (_) => setTimeout(map.invalidateSize, 100));
   on("state_changed", renderMap);
   on("point_selected", onSelectedPointMap);
+  on("points_preview", onPreviewPointMap);
+  map.on("click", async (e) => emit("map_clicked", e.latlng));
 }
 
 let mapGpxLayers = [];
 let selectedMarker = null;
+let mapPreviewLayer = null;
 
 async function renderMap(hasGpx) {
   if (!map) return;
@@ -339,6 +349,23 @@ async function onSelectedPointMap(point) {
     });
     selectedMarker.on("click", () => emit("point_selected", null));
     selectedMarker.addTo(map);
+  }
+}
+
+function onPreviewPointMap(points) {
+  if (mapPreviewLayer) {
+    map.removeLayer(mapPreviewLayer);
+    mapPreviewLayer = null;
+  }
+  if (points && points.length > 0) {
+    if (points.length == 1)
+      mapPreviewLayer = L.circleMarker(points[0], {
+        color: "#7C1BD1",
+        radius: 6,
+        fillOpacity: 1,
+      });
+    else mapPreviewLayer = L.polyline(points, { color: "#7C1BD1", weight: 5 });
+    mapPreviewLayer.addTo(map);
   }
 }
 
@@ -410,31 +437,28 @@ function setupFileDrop() {
 }
 
 // ── Trim ──────────────────────────────────────────────────────────────
-let trimPoint = null;
 function setupTrim() {
   $("#btn-trim-before").addEventListener("click", async () => {
-    if (!pyodide || trimPoint == null) return;
+    if (!pyodide || selectedPoint == null) return;
     showLoading("Trimming GPX");
-    await pyodide.runPythonAsync(`trim_before(*${pyodide.toPy(trimPoint)})`);
+    await pyodide.runPythonAsync(
+      `trim_before(${selectedPoint.seg},${selectedPoint.idx})`,
+    );
     emit("state_changed", true);
     hideLoading();
   });
 
   $("#btn-trim-after").addEventListener("click", async () => {
-    if (!pyodide || trimPoint == null) return;
+    if (!pyodide || selectedPoint == null) return;
     showLoading("Trimming GPX");
-    await pyodide.runPythonAsync(`trim_after(*${pyodide.toPy(trimPoint)})`);
+    await pyodide.runPythonAsync(
+      `trim_after(${selectedPoint.seg},${selectedPoint.idx})`,
+    );
     emit("state_changed", true);
     hideLoading();
   });
   on("point_selected", (p) => {
-    if (p) {
-      trimPoint = [p.seg, p.idx];
-      $("#btn-trim-before").disabled = $("#btn-trim-after").disabled = false;
-    } else {
-      $("#btn-trim-before").disabled = $("#btn-trim-after").disabled = true;
-      trimPoint = null;
-    }
+    $("#btn-trim-before").disabled = $("#btn-trim-after").disabled = !p;
   });
 }
 
@@ -502,6 +526,131 @@ function setupClean() {
   });
 }
 
+// ── Insert (new track) ───────────────────────────────────────────────
+function createRow(lat = "", lon = "", ele = "", time = "") {
+  const tbody = $("#point-rows");
+  tbody.querySelector("[data-empty]").hidden = true;
+
+  const makeInput = (type, value, step, placeholder, update) => {
+    const td = document.createElement("td");
+    const inp = document.createElement("input");
+    inp.type = type;
+    inp.step = step;
+    inp.value = value;
+    inp.placeholder = placeholder;
+    if (update)
+      inp.addEventListener("input", () =>
+        emit("points_preview", getInsertRows()),
+      );
+    td.appendChild(inp);
+    return td;
+  };
+  const makeActionBtn = (text, title, onClick) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn-icon";
+    btn.textContent = text;
+    btn.title = title;
+    btn.addEventListener("click", onClick);
+    return btn;
+  };
+
+  const tr = document.createElement("tr");
+  tr.appendChild(makeInput("number", lat, "0.00001", "e.g. 42.1337", true));
+  tr.appendChild(makeInput("number", lon, "0.00001", "e.g. -12.007", true));
+  tr.appendChild(makeInput("number", ele, "0.1", "e.g. 42"));
+  tr.appendChild(makeInput("datetime-local", time, "1", ""));
+
+  const tdActions = document.createElement("td");
+  const actions = document.createElement("span");
+  actions.style.cssText = "display:flex";
+  const upBtn = makeActionBtn("\u2191", "Move up", () => {
+    const prev = tr.previousElementSibling;
+    if (prev && !prev.hasAttribute("data-empty")) tbody.insertBefore(tr, prev);
+    emit("points_preview", getInsertRows());
+  });
+  const downBtn = makeActionBtn("\u2193", "Move down", () => {
+    const next = tr.nextElementSibling;
+    if (next) tbody.insertBefore(next, tr);
+    emit("points_preview", getInsertRows());
+  });
+  const removeBtn = makeActionBtn("\u00d7", "Remove", () => {
+    tr.remove();
+    if (tbody.children.length === 1)
+      tbody.querySelector("[data-empty]").hidden = false;
+    emit("points_preview", getInsertRows());
+  });
+  removeBtn.classList.add("danger");
+  actions.append(upBtn, downBtn, removeBtn);
+  tdActions.appendChild(actions);
+  tr.appendChild(tdActions);
+
+  tbody.appendChild(tr);
+  emit("points_preview", getInsertRows());
+}
+
+function getInsertRows() {
+  return [...$("#point-rows").querySelectorAll("tr:not([data-empty])")]
+    .map((tr) => {
+      const [tdLat, tdLon, tdEle, tdTime] = tr.children;
+      const row = {
+        lat: tdLat.querySelector("input").value,
+        lon: tdLon.querySelector("input").value,
+      };
+      const ele = tdEle.querySelector("input").value;
+      if (ele) row.ele = ele;
+      const time = tdTime.querySelector("input").value;
+      if (time) row.time = time;
+      return row;
+    })
+    .filter((r) => r.lat && r.lon);
+}
+
+function setupInsert() {
+  $("#btn-add-row").addEventListener("click", createRow);
+  $("#insert-copy").addEventListener("click", () => {
+    if (!selectedPoint) return;
+    const pt = selectedPoint;
+    createRow(
+      pt.lat.toFixed(5),
+      pt.lon.toFixed(5),
+      pt.ele != null ? pt.ele.toFixed(1) : "",
+      pt.time ? formatLocalTime(new Date(pt.time)) : "",
+    );
+  });
+  on("point_selected", (point) => ($("#insert-copy").disabled = !point));
+  on("state_changed", (hasGpx) => ($("#insert-apply").disabled = !hasGpx));
+  on("map_clicked", (pt) => {
+    if (
+      !$("#insert-click-mode").checked ||
+      $(`.tab-content[data-tab="insert"]`).hidden
+    )
+      return;
+    createRow(pt.lat.toFixed(5), pt.lng.toFixed(5));
+  });
+  $("#insert-apply").addEventListener("click", async () => {
+    const rows = getInsertRows();
+    if (rows.length === 0 || !pyodide) return;
+    showLoading("Inserting points...");
+    try {
+      rows.forEach((r) => {
+        if (r.time) r.time = new Date(r.time).toISOString();
+      });
+      await pyodide.runPythonAsync(`insert_points(${pyodide.toPy(rows)})`);
+      $("#point-rows")
+        .querySelectorAll("tr:not([data-empty])")
+        .forEach((e) => e.remove());
+      emit("state_changed", true);
+      emit("points_preview", null);
+    } catch (err) {
+      showToast("Insert failed: " + err.message);
+      console.error(err);
+    } finally {
+      hideLoading();
+    }
+  });
+}
+
 // ── State and File buttons ───────────────────────────────────────────
 function setupButtons() {
   $("#btn-save").addEventListener("click", () =>
@@ -523,6 +672,7 @@ function setupButtons() {
 setupTabs();
 setupFileDrop();
 setupTrim();
+setupInsert();
 setupButtons();
 setupStats();
 setupMap();
@@ -532,5 +682,6 @@ setupPyodide();
 setupPlots();
 
 on("state_changed", (_) => emit("point_selected", null));
+on("point_selected", (pt) => (selectedPoint = pt));
 window.addEventListener("resize", (e) => emit("resize", null));
 emit("state_changed", false);

@@ -101,7 +101,9 @@
                             <button class="action secondary" id="btn-reset" type="button">Reset</button>
                         </div>
                     </div>
-                    <ul class="col" id="file-list"><h3>No Files Loaded</h3></ul>
+                    <ul class="col" id="file-list">
+                        <h3>No Files Loaded</h3>
+                    </ul>
                 </div>
             </div>
 
@@ -116,13 +118,33 @@
             <div class="tab-content" data-tab="insert" role="tabpanel" aria-labelledby="tab-insert" hidden>
                 <fieldset>
                     <legend>Add a New Track</legend>
-                    <div class="field">
-                        <label for="insert-points">Points (CSV)</label>
-                        <textarea
-                            id="insert-points"
-                            rows="5"
-                            placeholder="lat,lon[,elev][,time]&#10;59.3293,18.0686,42&#10;59.3295,18.0690,45"
-                        ></textarea>
+                    <table id="point-table">
+                        <thead>
+                            <tr>
+                                <th>Latitude</th>
+                                <th>Longitude</th>
+                                <th>Elevation</th>
+                                <th>Time</th>
+                                <th width="60">&nbsp;</th>
+                            </tr>
+                        </thead>
+                        <tbody id="point-rows">
+                            <tr data-empty>
+                                <td colspan="5">
+                                    <span class="muted">No points added yet. Click "Add Row" or "Copy Selected Point" to begin.</span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <div class="row" id="insert-actions">
+                        <button class="action secondary" id="btn-add-row" type="button">Add Row</button>
+                        <button class="action secondary" id="insert-copy" disabled type="button">
+                            Copy Selected Point
+                        </button>
+                        <label class="field" for="insert-click-mode" style="margin-top: auto; margin-bottom: auto">
+                            <span>Click on Map to add points</span>
+                            <span><input type="checkbox" id="insert-click-mode" /></span>
+                        </label>
                     </div>
                 </fieldset>
                 <div class="row">
