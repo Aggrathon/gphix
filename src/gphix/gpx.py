@@ -431,20 +431,24 @@ class GPX:
 
     def clean(
         self,
+        min_size: int = 1,
         add_bounds: bool = False,
         outliers: bool = False,
         max_distance: float = 100.0,
+        max_time: float = float("inf"),
     ):
         """Remove empty segments, tracks, outliers, and refresh metadata.
 
         Args:
+            min_size: Remove segments shorter than this.
             add_bounds: Create metadata time and coordinate bounds if not existing.
             outliers: Remove consecutive points farther than *max_distance*.
             max_distance: Threshold in metres for outlier removal.
+            max_time: Threshold in seconds for outlier removal.
         """
         for trk in self.root.iterfind("gpx:trk", self.namespaces):
             for seg in trk.iterfind("gpx:trkseg", self.namespaces):
-                if len(seg) == 0:
+                if len(seg) < min_size:
                     trk.remove(seg)
             if len(trk) == 0:
                 self.root.remove(trk)
@@ -453,7 +457,7 @@ class GPX:
                 self.root.remove(rte)
 
         if outliers:
-            self._remove_outliers(max_distance)
+            self._remove_outliers(max_distance, max_time)
 
         meta = self.metadata()
         if add_bounds and meta is None:
@@ -470,9 +474,7 @@ class GPX:
                 orig_time = datetime.max.replace(tzinfo=UTC)
                 meta.time = orig_time
             if add_bounds or add_time:
-                changed = False
                 for pt in self.points():
-                    changed = True
                     if add_time and (time := pt.time) is not None:
                         meta.time = min(meta.time, time)
                     if add_bounds:
@@ -483,28 +485,33 @@ class GPX:
                         meta.max_lon = max(meta.max_lon, lon)
                 if add_time and meta.time == orig_time:
                     meta.time = None
-                if changed:
-                    self.set_metadata(meta)
+            self.set_metadata(meta)
 
-    def _remove_outliers(self, max_distance: float) -> None:
+    def _remove_outliers(self, max_distance: float, max_time: float) -> None:
         """Remove consecutive points whose distance exceeds *max_distance*."""
         for seg in self.segments(False, False):
             length = len(seg)
-            if length <= 2:
+            max_out = 1 + int(length > 10) + int(length > 100) + int(length > 1000)
+            if length <= max_out + 1:
                 continue
-            subs = []
+            to_remove = []
+            path = []
+            lp, lt = (0, 0, 0), None
             for pt in seg.points():
-                p = (pt.latitude, pt.longitude, pt.elevation, pt)
-                if not subs:
-                    subs.append([p])
-                for s in subs:
-                    if distance((s[-1][:-1], p[:-1])) < max_distance:
-                        s.append(p)
-                        break
+                p, t = (pt.latitude, pt.longitude, pt.elevation), pt.time
+                if not path:
+                    path = [pt]
+                elif (distance((lp, p)) < max_distance) and (
+                    (t is None) or (lt is None) or ((t - lt).total_seconds() < max_time)
+                ):
+                    path.append(pt)
                 else:
-                    subs.append([p])
-            max_out = 1 + int(length > 100) + int(length > 1000)
-            to_remove = [pt for s in subs if len(s) <= max_out for _, _, _, pt in s]
+                    if len(path) <= max_out:
+                        to_remove.extend(path)
+                    path = [pt]
+                lp, lt = p, t
+            if len(path) <= max_out:
+                to_remove.extend(path)
             if len(to_remove) <= length / 4:
                 for pt in to_remove:
                     seg.remove(pt)

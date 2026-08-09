@@ -178,9 +178,15 @@ def main(
     _add_input_arg(clean_parser)
     _add_output_arg(clean_parser)
     clean_parser.add_argument(
+        "--bounds", action="store_true", help="Add bounds to metadata"
+    )
+    clean_parser.add_argument(
+        "--min-size", type=int, default=1, help="Remove smaller segments (default: 1)"
+    )
+    clean_parser.add_argument(
         "--outliers",
         action="store_true",
-        help="Remove consecutive points farther than --max-distance metres",
+        help="Remove singular points with odd jumps (based on --max-distance or --max-time)",
     )
     clean_parser.add_argument(
         "--max-distance",
@@ -189,7 +195,10 @@ def main(
         help="Outlier threshold in metres (default: 100)",
     )
     clean_parser.add_argument(
-        "--bounds", action="store_true", help="Add bounds to metadata"
+        "--max-time",
+        type=float,
+        default=float("inf"),
+        help="Outlier threshold in seconds (default: inf)",
     )
 
     # --- meta ---
@@ -256,9 +265,11 @@ def main(
         _cmd_clean(
             parsed.input,
             parsed.output,
+            parsed.min_size,
+            parsed.bounds,
             parsed.outliers,
             parsed.max_distance,
-            parsed.bounds,
+            parsed.max_time,
             out,
             stdin,
         )
@@ -499,15 +510,17 @@ def _cmd_trim(
 def _cmd_clean(
     input_file: Path,
     output: Path,
+    min_size: int,
+    add_bounds: bool,
     outliers: bool,
     max_distance: float,
-    add_bounds: bool,
+    max_time: float,
     out: TextIO,
     stdin: BytesIO | None = None,
 ) -> None:
     """Handle the ``clean`` subcommand."""
     gpx = _load_gpx(input_file, stdin)
-    gpx.clean(outliers=outliers, max_distance=max_distance, add_bounds=add_bounds)
+    gpx.clean(min_size, add_bounds, outliers, max_distance, max_time)
     if output != Path("-"):
         gpx.write(output)
         print(f"Cleaned {input_file} → {output}", file=out)

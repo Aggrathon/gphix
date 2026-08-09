@@ -6,8 +6,10 @@
 - [x] Insert new points/tracks
 - [x] Add missing elevation data
 - [x] Fill gaps from reference GPX
+  - [ ] What about periods with frozen GPS coordinates?
 - [x] Update metadata
-- [x] Clean GPX 
+- [x] Clean GPX
+  - [ ] Merge tracks?
 - [x] CLI
   - [x] Stats
   - [x] Merge

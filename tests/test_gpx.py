@@ -237,7 +237,17 @@ def test_clean():
     meta = gpx.metadata()
     assert meta.max_lon == 3.0
     assert meta.time is None
-    gpx.add_track().add_points((1.0, 1.0), (0.9999, 1.0), (-0.1, 1.0), (0.9998, 1.0))
+    gpx.add_track().add_points(
+        (1.0, 1.0), (0.9999, 1.0), (-0.1, 1.0), (0.9998, 1.0), (0.9997, 1.0)
+    )
+    assert len(gpx.segments()[-1]) == 5
     gpx.clean(outliers=True, add_bounds=True)
-    assert len(gpx.segments()[-1]) == 3
+    assert len(gpx.segments()[-1]) == 4
     assert gpx.metadata().time == time
+    trk = gpx.add_track()
+    for i in [-11, 202, 203, 204, 205, 406, 507, 508, 509, 510, 511, 612]:
+        trk.add_point(1.0, 1.0).time = time + timedelta(seconds=i)
+    assert len(gpx.segments()[-1]) == 12
+    gpx.clean(outliers=True, max_time=50, min_size=2)
+    assert len(gpx.segments()[-1]) == 9
+    assert gpx.metadata().time > time

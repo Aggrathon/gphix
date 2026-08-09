@@ -374,7 +374,11 @@ def test_cmd_clean(tmp_path):
     assert "Cleaned" in buf.getvalue()
     assert len(list(GPX(out_path).points())) == 4
     buf = StringIO()
-    main(["clean", "-", "--outliers"], out=buf, stdin=_file_to_stdin(out_path))
+    main(
+        ["clean", "-", "--outliers", "--max-time=inf"],
+        out=buf,
+        stdin=_file_to_stdin(out_path),
+    )
     out = buf.getvalue()
     assert len(out.split("trkpt")) == 4  # one outlier removed
 
