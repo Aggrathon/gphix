@@ -224,3 +224,16 @@ def set_metadata(
     gpx = deepcopy(current.gpx)
     gpx.set_metadata(meta)
     next(gpx)
+
+
+def apply_clean(
+    min_size: int = 1,
+    add_bounds: bool = False,
+    outliers: bool = False,
+    max_distance: float = 100.0,
+    max_time: float = 70.0,
+):
+    if current is not None:
+        gpx = deepcopy(current.gpx)
+        gpx.clean(min_size, add_bounds, outliers, max_distance, max_time)
+        next(gpx)

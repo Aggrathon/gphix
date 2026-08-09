@@ -158,8 +158,8 @@ async function onSelectedPointStats(point) {
   const s = (label, value) =>
     `<div class="stat"><span>${label}</span><span>${value}</span></div>`;
   el.innerHTML = [
-    s("Latitude", point.lat.toFixed(5)),
-    s("Longitude", point.lon.toFixed(5)),
+    s("Latitude", point.lat.toFixed(6)),
+    s("Longitude", point.lon.toFixed(6)),
     s("Distance", formatDistance(point.dist)),
     s("Elevation", point.ele != null ? point.ele.toFixed(1) + " m" : "N/A"),
     s("Time", point.time ? new Date(point.time).toLocaleString() : "N/A"),
@@ -459,25 +459,47 @@ function setupMetadata() {
   on("state_changed", loadMetadata);
 }
 
+// ── Clean ──────────────────────────────────────────────────────────────
+function setupClean() {
+  on("state_changed", (hasGpx) => ($("#clean-apply").disabled = !hasGpx));
+
+  $("#clean-outliers").addEventListener("change", () => {
+    $("#clean-max-dist").disabled = $("#clean-max-time").disabled =
+      !$("#clean-outliers").checked;
+  });
+
+  $("#clean-apply").addEventListener("click", async () => {
+    if (!pyodide) return;
+    const args = [
+      parseInt($("#clean-size").value),
+      $("#clean-bounds").checked,
+      $("#clean-outliers").checked,
+      parseFloat($("#clean-max-dist").value),
+      parseFloat($("#clean-max-dist").value),
+    ];
+    console.log(args);
+    showLoading("Cleaning GPX");
+    await pyodide.runPythonAsync(`apply_clean(*${pyodide.toPy(args)})`);
+    emit("state_changed", true);
+    hideLoading();
+  });
+}
+
 // ── State and File buttons ───────────────────────────────────────────
 function setupButtons() {
-  async function onUndoClick() {
-    if (!pyodide) return;
-    const hasGpx = await pyodide.runPythonAsync("to_js(undo())");
-    emit("state_changed", hasGpx);
-  }
-
-  async function onResetClick() {
-    if (!pyodide) return;
-    await pyodide.runPythonAsync("reset()");
-    emit("state_changed", false);
-  }
-
   $("#btn-save").addEventListener("click", () =>
     showToast("Save — not implemented yet"),
   );
-  $("#btn-undo").addEventListener("click", onUndoClick);
-  $("#btn-reset").addEventListener("click", onResetClick);
+  $("#btn-undo").addEventListener("click", async () => {
+    if (!pyodide) return;
+    const hasGpx = await pyodide.runPythonAsync("to_js(undo())");
+    emit("state_changed", hasGpx);
+  });
+  $("#btn-reset").addEventListener("click", async () => {
+    if (!pyodide) return;
+    await pyodide.runPythonAsync("reset()");
+    emit("state_changed", false);
+  });
 }
 
 // ── Init ─────────────────────────────────────────────────────────────
@@ -488,6 +510,7 @@ setupButtons();
 setupStats();
 setupMap();
 setupMetadata();
+setupClean();
 setupPyodide();
 setupPlots();
 
