@@ -106,29 +106,10 @@
             </div>
 
             <div class="tab-content" data-tab="trim" role="tabpanel" aria-labelledby="tab-trim" hidden>
-                <fieldset>
-                    <legend>Trim Ends</legend>
-                    <div class="field">
-                        <label for="trim-mode">Mode</label>
-                        <select id="trim-mode">
-                            <option value="percent">Percentage of points</option>
-                            <option value="time">Time (seconds)</option>
-                            <option value="distance">Distance (meters)</option>
-                        </select>
-                    </div>
-                    <div class="field">
-                        <label for="trim-start">From start</label>
-                        <input type="range" id="trim-start" value="0" min="0" max="100" />
-                        <output id="trim-start-value" aria-live="polite">0%</output>
-                    </div>
-                    <div class="field">
-                        <label for="trim-end">From end</label>
-                        <input type="range" id="trim-end" style="direction: rtl" value="0" min="0" max="100" />
-                        <output id="trim-end-value" aria-live="polite">0%</output>
-                    </div>
-                </fieldset>
-                <div class="row">
-                    <button class="action" id="trim-apply" disabled type="button">Apply</button>
+                <p class="muted">Select a point on the map or plots, then choose which part to trim:<br /><br /></p>
+                <div class="row" id="trim-buttons">
+                    <button id="btn-trim-before" class="action" disabled type="button">Remove Before</button>
+                    <button id="btn-trim-after" class="action" disabled type="button">Remove After</button>
                 </div>
             </div>
 

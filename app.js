@@ -62,7 +62,7 @@ async function setupPyodide() {
     const py = await loadPyodide();
     py.FS.mkdirTree("/gphix");
     py.FS.writeFile("/gphix/__init__.py", '"""GPX file toolbox."""');
-    for (const f of ["utils.py", "gpx.py", "web.py"]) {
+    for (const f of ["utils.py", "gpx.py", "web.py", "trim.py"]) {
       const resp = await fetch("src/gphix/" + f);
       py.FS.writeFile("/gphix/" + f, await resp.text());
     }
@@ -290,14 +290,14 @@ function setupMap() {
 let mapGpxLayers = [];
 let selectedMarker = null;
 
-async function renderMap(_) {
+async function renderMap(hasGpx) {
   if (!map) return;
   for (const layer of mapGpxLayers) {
     map.removeLayer(layer);
   }
   mapGpxLayers = [];
 
-  if (!pyodide) return;
+  if (!hasGpx || !pyodide) return;
   const segments = await pyodide.runPythonAsync("to_js(get_segments())");
   if (segments.length == 0) {
     map.setView([0, 0], 2);
@@ -360,14 +360,16 @@ function setupTabs() {
 }
 
 // ── Files ────────────────────────────────────────────────────────
-async function updateFileList(_) {
-  if (!pyodide) return;
+async function updateFileList(hasGpx) {
   const list = $("#file-list");
+  if (!hasGpx || !pyodide) {
+    list.innerHTML = "<h3>No files loaded</h3>";
+    return;
+  }
   list.innerHTML += "Processing GPX files...";
   const files = await pyodide.runPythonAsync("to_js(get_files())");
   if (files.length == 1) list.innerHTML = "<h3>Current GPX File</h3>";
   else if (files.length > 0) list.innerHTML = "<h3>Merged GPX Files</h3>";
-  else list.innerHTML = "<h3>No files loaded</h3>";
   for (const f of files) {
     const li = document.createElement("li");
     li.textContent = f;
@@ -407,17 +409,33 @@ function setupFileDrop() {
   on("state_changed", updateFileList);
 }
 
-// ── Sliders ─────────────────────────────────────────────────────
-function setupSliders() {
-  const sliders = ["#trim-start", "#trim-end"];
-  for (const id of sliders) {
-    const slider = $(id);
-    const output = $(id + "-value");
-    slider.addEventListener("input", () => {
-      output.textContent = `${slider.value}%`;
-    });
-    slider.value = 0;
-  }
+// ── Trim ──────────────────────────────────────────────────────────────
+let trimPoint = null;
+function setupTrim() {
+  $("#btn-trim-before").addEventListener("click", async () => {
+    if (!pyodide || trimPoint == null) return;
+    showLoading("Trimming GPX");
+    await pyodide.runPythonAsync(`trim_before(*${pyodide.toPy(trimPoint)})`);
+    emit("state_changed", true);
+    hideLoading();
+  });
+
+  $("#btn-trim-after").addEventListener("click", async () => {
+    if (!pyodide || trimPoint == null) return;
+    showLoading("Trimming GPX");
+    await pyodide.runPythonAsync(`trim_after(*${pyodide.toPy(trimPoint)})`);
+    emit("state_changed", true);
+    hideLoading();
+  });
+  on("point_selected", (p) => {
+    if (p) {
+      trimPoint = [p.seg, p.idx];
+      $("#btn-trim-before").disabled = $("#btn-trim-after").disabled = false;
+    } else {
+      $("#btn-trim-before").disabled = $("#btn-trim-after").disabled = true;
+      trimPoint = null;
+    }
+  });
 }
 
 // ── Metadata ─────────────────────────────────────────────────────────
@@ -442,7 +460,6 @@ async function loadMetadata(hasGpx) {
 }
 
 function setupMetadata() {
-  loadMetadata(false);
   for (const field of metadataFields) {
     $("#meta-" + field).addEventListener("input", () => {
       $("#meta-apply").disabled = false;
@@ -505,7 +522,7 @@ function setupButtons() {
 // ── Init ─────────────────────────────────────────────────────────────
 setupTabs();
 setupFileDrop();
-setupSliders();
+setupTrim();
 setupButtons();
 setupStats();
 setupMap();
@@ -516,3 +533,4 @@ setupPlots();
 
 on("state_changed", (_) => emit("point_selected", null));
 window.addEventListener("resize", (e) => emit("resize", null));
+emit("state_changed", false);

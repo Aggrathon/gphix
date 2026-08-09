@@ -32,12 +32,10 @@
     - [x] Load
     - [x] Merge
     - [x] Stats
-      - [x] Whole GPX
-      - [x] Selected point
-    - [ ] Metadata
-    - [ ] Clean
+    - [x] Metadata
+    - [x] Clean
+    - [x] Trim
     - [ ] Insert
-    - [ ] Trim
     - [ ] Elevation
     - [ ] Fill
   - [x] Pyodide (to use the library)
