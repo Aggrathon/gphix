@@ -135,11 +135,10 @@ def test_cmd_trim_distance_mode(tmp_path):
             str(tmp_path / "input.gpx"),
             "-o",
             "-",
-            "--distance",
             "--start",
-            "1000",
+            "1000m",
             "--end",
-            "1000",
+            "1000m",
         ],
         out=buf,
     )
@@ -152,20 +151,7 @@ def test_cmd_trim_time_mode(tmp_path):
     create_gpx_file(path, [Point(40.0 + i, -74.0, time=i * 60) for i in range(5)])
 
     buf = StringIO()
-    main(
-        [
-            "trim",
-            str(path),
-            "-o",
-            "-",
-            "--time",
-            "--start",
-            "60",
-            "--end",
-            "60",
-        ],
-        out=buf,
-    )
+    main(["trim", str(path), "-o", "-", "--start", "60s", "--end=1%"], out=buf)
     _assert_raw_xml(buf)
 
 
@@ -177,7 +163,7 @@ def test_cmd_trim_stdin(tmp_path):
 
     buf = StringIO()
     main(
-        ["trim", "-", "-o", str(out_path), "--start=20", "--end=20"],
+        ["trim", "-", "-o", str(out_path), "--start=20%", "--end=1"],
         out=buf,
         stdin=_file_to_stdin(gpx_path),
     )
@@ -386,12 +372,24 @@ def test_cmd_clean(tmp_path):
 def test_cmd_meta(tmp_path):
     """Test meta subcommand: set metadata fields."""
     gpx = tmp_path / "input.gpx"
-    create_gpx_file(gpx, metadata=GPXMetadata(name="A", email="B"))
+    create_gpx_file(gpx, metadata=GPXMetadata(name="A", email="B", copyright="E"))
     out = str(tmp_path / "meta.gpx")
 
     buf = StringIO()
     main(
-        ["meta", str(gpx), "-o", out, "--name", "C", "--author", "D", "--email", ""],
+        [
+            "meta",
+            str(gpx),
+            "-o",
+            out,
+            "--name",
+            "C",
+            "--author",
+            "D",
+            "--email",
+            "",
+            "--keywords=F",
+        ],
         out=buf,
     )
     assert "Updated metadata" in buf.getvalue()

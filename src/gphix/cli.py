@@ -5,7 +5,7 @@ import sys
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
-from typing import TextIO
+from typing import Literal, TextIO
 
 from gphix.trim import trim
 from gphix.utils import flatten, format_distance, format_duration
@@ -15,7 +15,22 @@ from .fill import fill_gaps, find_gaps
 from .gpx import GPX, GPXMetadata, GPXStats
 
 
-def _add_output_arg(parser: argparse.ArgumentParser) -> None:
+def _parse_trim_value(s: str) -> tuple[float, Literal["i", "s", "m", "p"]]:
+    """Parse a trim value with optional unit suffix.
+
+    Returns `(value, unit)` where unit is one of `i` (points), `m` (metres), `s` (seconds), `p` (percent).
+    """
+    if not s:
+        return 0, "i"
+    if s[-1] in ["%", "p"]:
+        return float(s[:-1]) / 100, "p"
+    if s[-1] in ["m", "s", "i"]:
+        return float(s[:-1]), s[-1]
+    else:
+        return int(s), "i"
+
+
+def _add_output_arg(parser: argparse.ArgumentParser):
     """Add the shared -o/--output argument to a parser."""
     parser.add_argument(
         "-o",
@@ -26,7 +41,7 @@ def _add_output_arg(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _add_input_arg(parser: argparse.ArgumentParser) -> None:
+def _add_input_arg(parser: argparse.ArgumentParser):
     """Add the shared input file argument to a parser."""
     parser.add_argument("input", type=Path, help="Input GPX file (use - for stdin)")
 
@@ -43,7 +58,7 @@ def main(
     args: list[str] | None = None,
     out: TextIO = sys.stdout,
     stdin: BytesIO | None = None,
-) -> None:
+):
     """CLI entry point for gphix."""
     parser = argparse.ArgumentParser(
         prog="gphix",
@@ -74,26 +89,15 @@ def main(
     _add_output_arg(trim_parser)
     trim_parser.add_argument(
         "--start",
-        type=float,
-        default=0.0,
-        help="Percentage (0–100) to remove from the beginning (default: 0)",
+        type=_parse_trim_value,
+        default=(0, "i"),
+        help="Points to remove from the beginning. Suffixes: m=metres, s=seconds, %%=percent (default: 0)",
     )
     trim_parser.add_argument(
         "--end",
-        type=float,
-        default=0.0,
-        help="Percentage (0–100) to remove from the end (default: 0)",
-    )
-    trim_excl = trim_parser.add_mutually_exclusive_group()
-    trim_excl.add_argument(
-        "--time",
-        action="store_true",
-        help="Treat --start/--end as seconds (default: percent)",
-    )
-    trim_excl.add_argument(
-        "--distance",
-        action="store_true",
-        help="Treat --start/--end as metres (default: percent)",
+        type=_parse_trim_value,
+        default=(0, "i"),
+        help="Points to remove from the end. Suffixes: m=metres, s=seconds, %%=percent (default: 0)",
     )
 
     # --- insert ---
@@ -226,8 +230,6 @@ def main(
             parsed.output,
             parsed.start,
             parsed.end,
-            parsed.time,
-            parsed.distance,
             out,
             stdin,
         )
@@ -290,14 +292,14 @@ def main(
         parser.print_help(out)
 
 
-def _cmd_stats(input_file: Path, out: TextIO, stdin: BytesIO | None = None) -> None:
+def _cmd_stats(input_file: Path, out: TextIO, stdin: BytesIO | None = None):
     """Handle the ``stats`` subcommand."""
     gpx = _load_gpx(input_file, stdin)
     print(f"File: {input_file.name}", file=out)
     _print_stats(gpx, out, prefix="")
 
 
-def _cmd_merge(input_files: list[Path], output: Path, out: TextIO) -> None:
+def _cmd_merge(input_files: list[Path], output: Path, out: TextIO):
     """Handle the ``merge`` subcommand."""
     merged = GPX.merge(input_files)  # type: ignore
     if output != Path("-"):
@@ -396,7 +398,7 @@ def _cmd_elevation(
     radius: float,
     out: TextIO,
     stdin: BytesIO | None = None,
-) -> None:
+):
     """Handle the ``elevation`` subcommand."""
     gpx = _load_gpx(input_file, stdin)
 
@@ -419,7 +421,7 @@ def _cmd_insert(
     tokens: list[str],
     out: TextIO,
     stdin: BytesIO | None = None,
-) -> None:
+):
     """Handle the ``insert`` subcommand."""
     gpx = _load_gpx(input_file, stdin)
 
@@ -450,7 +452,7 @@ def _cmd_fill(
     selected_gaps: list[int | list[int]] | None,
     out: TextIO,
     stdin: BytesIO | None = None,
-) -> None:
+):
     """Handle the ``fill`` subcommand."""
     gpx = _load_gpx(input_file, stdin)
     ref = _load_gpx(ref_file, stdin)
@@ -479,24 +481,16 @@ def _cmd_fill(
 def _cmd_trim(
     input_file: Path,
     output: Path,
-    start: float,
-    end: float,
-    by_time: bool,
-    by_distance: bool,
+    start: tuple[float, Literal["i", "s", "m", "p"]],
+    end: tuple[float, Literal["i", "s", "m", "p"]],
     out: TextIO,
     stdin: BytesIO | None = None,
-) -> None:
+):
     """Handle the ``trim`` subcommand."""
     gpx = _load_gpx(input_file, stdin)
-
-    if not by_time and not by_distance:
-        start /= 100
-        end /= 100
     if output != Path("-"):
         orig_stats = gpx.stats()
-    trim(gpx, start=start, end=end, by_time=by_time, by_distance=by_distance)
-
-    if output != Path("-"):
+        trim(gpx, *start, *end)
         gpx.write(output)
         print(f"Trimmed {input_file} → {output}", file=out)
         new_stats = _print_stats(gpx, out)
@@ -504,6 +498,7 @@ def _cmd_trim(
         dist_saved = orig_stats.distance - new_stats.distance
         print(f"Removed: {removed} points ({format_distance(dist_saved)})", file=out)
     else:
+        trim(gpx, *start, *end)
         out.write(gpx.to_string())
 
 
@@ -517,7 +512,7 @@ def _cmd_clean(
     max_time: float,
     out: TextIO,
     stdin: BytesIO | None = None,
-) -> None:
+):
     """Handle the ``clean`` subcommand."""
     gpx = _load_gpx(input_file, stdin)
     gpx.clean(min_size, add_bounds, outliers, max_distance, max_time)
@@ -540,7 +535,7 @@ def _cmd_meta(
     keywords: str | None,
     out: TextIO,
     stdin: BytesIO | None = None,
-) -> None:
+):
     """Handle the ``meta`` subcommand."""
     gpx = _load_gpx(input_file, stdin)
     meta = gpx.metadata()
