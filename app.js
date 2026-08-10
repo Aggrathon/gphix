@@ -61,6 +61,12 @@ function formatLocalTime(time) {
     .slice(0, 19);
 }
 
+function cmpArray(a, b) {
+  if (a.length != b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] != b[i]) return false;
+  return true;
+}
+
 // ── Pyodide ─────────────────────────────────────────────────────
 let pyodide = null;
 async function setupPyodide() {
@@ -128,6 +134,26 @@ function setupStats() {
   $("#btn-last").addEventListener("click", async () => {
     await selectPoint(-1, "");
     $("#btn-last").disabled = true;
+    $("#btn-next").disabled = true;
+  });
+  $("#btn-prev").addEventListener("click", async () => {
+    if (!selectedPoint || !pyodide) return;
+    const pt = await pyodide.runPythonAsync(
+      `to_js(get_point(${selectedPoint.seg},${selectedPoint.idx - 1}))`,
+    );
+    if (pt) emit("point_selected", pt);
+    else $("#btn-prev").disabled = true;
+  });
+  $("#btn-next").addEventListener("click", async () => {
+    if (!selectedPoint || !pyodide) return;
+    const pt = await pyodide.runPythonAsync(
+      `to_js(get_point(${selectedPoint.seg},${selectedPoint.idx + 1}))`,
+    );
+    if (pt) emit("point_selected", pt);
+    else {
+      $("#btn-next").disabled = true;
+      $("#btn-last").disabled = true;
+    }
   });
 
   on("state_changed", onShowStats);
@@ -182,7 +208,9 @@ async function onSelectedPointStats(point) {
 }
 
 function enablePointSelection(point) {
-  $("#btn-first").disabled = point && point.seg == 0 && point.idx == 0;
+  $("#btn-first").disabled = point && point.seg + point.idx == 0;
+  $("#btn-prev").disabled = !point || point.seg + point.idx == 0;
+  $("#btn-next").disabled = !point;
   $("#btn-last").disabled = false;
 }
 
@@ -330,6 +358,7 @@ async function renderMap(hasGpx) {
     mapGpxLayers.push(trackLayer);
     bounds.push(trackLayer.getBounds());
     for (let i = 0; i < coords.length; i++) {
+      if (i > 0 && cmpArray(coords[i], coords[i - 1])) continue;
       const marker = L.circleMarker(coords[i], {
         radius: 2,
         color: "#16a34a",

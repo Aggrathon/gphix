@@ -191,6 +191,14 @@ def get_point(
         if (idx := get_point_idx(seg_idx)) is None:
             return None
         seg_idx, pt_idx = idx
+    elif pt_idx < 0:
+        seg_idx -= 1
+        pt_idx += len(current.segments[seg_idx])
+    elif pt_idx >= len(current.segments[seg_idx]):
+        pt_idx -= len(current.segments[seg_idx])
+        seg_idx += 1
+    if seg_idx < 0 or seg_idx >= len(current.segments):
+        return None
     return current.segments[seg_idx][pt_idx].to_dict() | {"seg": seg_idx, "idx": pt_idx}
 
 
