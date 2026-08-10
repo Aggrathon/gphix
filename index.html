@@ -80,7 +80,7 @@
             <button role="tab" aria-selected="false" id="tab-elevation" data-tab="elevation" type="button">
                 Elevation
             </button>
-            <button role="tab" aria-selected="false" id="tab-fill" data-tab="fill" type="button">Gaps</button>
+            <button role="tab" aria-selected="false" id="tab-gaps" data-tab="gaps" type="button">Gaps</button>
             <div class="tab-actions">
                 <button class="action secondary" id="btn-undo" type="button">Undo</button>
                 <button class="action" id="btn-save" type="button">Save</button>
@@ -112,12 +112,12 @@
             <div class="tab-content" data-tab="trim" role="tabpanel" aria-labelledby="tab-trim" hidden>
                 <fieldset>
                     <legend>Remove points</legend>
-                    <p class="muted">Select a point on the map or plots, then choose which part to trim:<br /><br /></p>
-                    <div class="row" id="trim-buttons">
-                        <button id="btn-trim-before" class="action" disabled type="button">Remove Before</button>
-                        <button id="btn-trim-after" class="action" disabled type="button">Remove After</button>
-                    </div>
+                    <p class="muted">Select a point on the map or plots, then choose which part to trim</p>
                 </fieldset>
+                <div class="row" id="trim-buttons">
+                    <button id="btn-trim-before" class="action" disabled type="button">Remove Before</button>
+                    <button id="btn-trim-after" class="action" disabled type="button">Remove After</button>
+                </div>
             </div>
 
             <div class="tab-content" data-tab="insert" role="tabpanel" aria-labelledby="tab-insert" hidden>
@@ -155,7 +155,7 @@
                     </div>
                 </fieldset>
                 <div class="row">
-                    <button class="action" id="insert-apply" disabled type="button">Apply</button>
+                    <button class="action" id="insert-apply" disabled type="button">Add Track</button>
                 </div>
             </div>
 
@@ -163,7 +163,7 @@
                 <div class="row">
                     <div class="col">
                         <fieldset>
-                            <legend>Fill in Missing Elevation</legend>
+                            <legend>Fix Missing Elevation</legend>
                             <div class="field">
                                 <label for="elev-sources">Reference files</label>
                                 <input
@@ -172,6 +172,12 @@
                                     multiple
                                     accept=".tiff,.tif,.img,.dat,.hgt,.gpx,.zip,.tar,.tgz,.tar.gz,.tar.bz2,.tar.xz"
                                 />
+                            </div>
+                            <div class="muted field">
+                                Elevation data can be found national databases (depending on location) or, e.g.,
+                                <a href="https://viewfinderpanoramas.org/dem3.html"
+                                    >https://viewfinderpanoramas.org/dem3.html</a
+                                >
                             </div>
                             <label class="field" for="elev-overwrite">
                                 <span class="label">Overwrite existing</span>
@@ -184,7 +190,7 @@
                             </div>
                         </fieldset>
                         <div class="row">
-                            <button class="action" id="elev-apply" disabled type="button">Apply</button>
+                            <button class="action" id="elev-apply" disabled type="button">Fix Elevation</button>
                         </div>
                     </div>
                     <ul class="col file-list" id="elev-list">
@@ -193,32 +199,35 @@
                 </div>
             </div>
 
-            <div class="tab-content" data-tab="fill" role="tabpanel" aria-labelledby="tab-fill" hidden>
-                <fieldset>
-                    <legend>Fill Gaps Between Segments</legend>
-                    <div class="field">
-                        <label for="fill-ref">Reference GPX</label>
-                        <input type="file" id="fill-ref" accept=".gpx" />
-                    </div>
-                    <div class="field">
-                        <label for="fill-min-dist">Min gap distance</label>
-                        <input type="number" id="fill-min-dist" class="small" value="200" />
-                        <span>meters</span>
-                    </div>
-                    <div class="field">
-                        <label for="fill-min-time">Min gap duration</label>
-                        <input type="number" id="fill-min-time" class="small" value="-1" />
-                        <span>seconds</span>
-                    </div>
-                </fieldset>
-                <fieldset>
-                    <legend>Detected Gaps</legend>
-                    <ul class="file-list" id="gap-list">
-                        <li><span>(load a file and run fill preview to detect gaps)</span></li>
-                    </ul>
-                </fieldset>
+            <div class="tab-content" data-tab="gaps" role="tabpanel" aria-labelledby="tab-gaps" hidden>
                 <div class="row">
-                    <button class="action" id="fill-apply" disabled type="button">Apply</button>
+                    <div class="col">
+                        <fieldset>
+                            <legend>Fill Gaps Between Segments</legend>
+                            <div class="field">
+                                <label for="gaps-ref">Reference GPX</label>
+                                <input type="file" id="gaps-ref" accept=".gpx" />
+                            </div>
+                            <div class="field">
+                                <label for="gaps-min-dist">Min gap distance</label>
+                                <input type="number" id="gaps-min-dist" class="small" value="200" />
+                                <span>meters</span>
+                            </div>
+                            <div class="field">
+                                <label for="gaps-min-time">Min gap duration</label>
+                                <input type="number" id="gaps-min-time" class="small" value="30" />
+                                <span>seconds</span>
+                            </div>
+                        </fieldset>
+                        <div class="row">
+                            <button class="action" id="gaps-find" disabled type="button">Find Gaps</button>
+                            <button class="action" id="gaps-apply" disabled type="button">Fill Gaps</button>
+                        </div>
+                    </div>
+                    <div class="col file-list">
+                        <h3>Detected Gaps</h3>
+                        <div class="muted">Click "find gaps" to list</div>
+                    </div>
                 </div>
             </div>
 
@@ -255,7 +264,7 @@
                     </label>
                 </fieldset>
                 <div class="row">
-                    <button class="action" id="clean-apply" disabled type="button">Apply</button>
+                    <button class="action" id="clean-apply" disabled type="button">Clean</button>
                 </div>
             </div>
 
