@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from gphix.elevation import add_elevation_to_gpx
 from gphix.gpx import GPX, GPXMetadata
 from gphix.trim import trim
 from gphix.utils import (
@@ -248,6 +249,11 @@ def apply_clean(
 ):
     if gpx := clone_next():
         gpx.clean(min_size, add_bounds, outliers, max_distance, max_time)
+
+
+def apply_elevation(paths: list[str], radius: float = 50.0, overwrite: bool = False):
+    if gpx := clone_next():
+        add_elevation_to_gpx(gpx, paths, overwrite=overwrite, radius=radius)
 
 
 def insert_points(rows: list[dict[str, str | float]]) -> None:

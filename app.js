@@ -58,7 +58,7 @@ function formatDistance(val) {
 function formatLocalTime(time) {
   return new Date(time.getTime() - time.getTimezoneOffset() * 60 * 1000)
     .toISOString()
-    .slice(0, 19)
+    .slice(0, 19);
 }
 
 // ── Pyodide ─────────────────────────────────────────────────────
@@ -69,7 +69,13 @@ async function setupPyodide() {
     const py = await loadPyodide();
     py.FS.mkdirTree("/gphix");
     py.FS.writeFile("/gphix/__init__.py", '"""GPX file toolbox."""');
-    for (const f of ["utils.py", "gpx.py", "web.py", "trim.py"]) {
+    for (const f of [
+      "utils.py",
+      "gpx.py",
+      "web.py",
+      "trim.py",
+      "elevation.py",
+    ]) {
       const resp = await fetch("src/gphix/" + f);
       py.FS.writeFile("/gphix/" + f, await resp.text());
     }
@@ -651,6 +657,65 @@ function setupInsert() {
   });
 }
 
+// ── Elevation ─────────────────────────────────────────────────────────
+let elevSources = [];
+
+function setupElevation() {
+  const elevInput = $("#elev-sources");
+  elevInput.value = "";
+  elevInput.addEventListener("change", async () => {
+    if (!pyodide || elevInput.files.length === 0) return;
+    const list = $("#elev-list");
+    for (const file of elevInput.files) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      pyodide.FS.writeFile(`/tmp/elev_` + file.name, bytes);
+      elevSources.push(`/tmp/elev_` + file.name);
+      if (elevSources.length === 1)
+        list.innerHTML = "<h3>Elevation Sources</h3>";
+      const li = document.createElement("li");
+      li.textContent = file.name;
+      list.appendChild(li);
+    }
+  });
+  $("#elev-apply").addEventListener("click", async () => {
+    if (!pyodide) return;
+    if (elevSources.length === 0) {
+      showToast("No reference files loaded");
+      return;
+    }
+    const radius = parseFloat($("#elev-radius").value);
+    const overwrite = $("#elev-overwrite").checked ? "True" : "False";
+    showLoading("Adding elevation…");
+    try {
+      showLoading("Loading dependencies…");
+      await pyodide.loadPackage("rasterio");
+      await pyodide.loadPackage("scipy");
+      showLoading("Adding elevation…");
+      await pyodide.runPythonAsync(
+        `apply_elevation(${pyodide.toPy(elevSources)}, radius=${radius}, overwrite=${overwrite})`,
+      );
+      resetElevFiles();
+      emit("state_changed", true);
+    } catch (err) {
+      showToast("Elevation failed: " + err.message);
+      console.error(err);
+    } finally {
+      hideLoading();
+    }
+  });
+
+  on("state_changed", (hasGpx) => ($("#elev-apply").disabled = !hasGpx));
+}
+
+function resetElevFiles() {
+  for (const file of elevSources) {
+    pyodide.FS.unlink(file);
+  }
+  elevSources = [];
+  $("#elev-sources").value = "";
+  $("#elev-list").innerHTML = "<h3>No Sources Loaded</h3>";
+}
+
 // ── State and File buttons ───────────────────────────────────────────
 function setupButtons() {
   $("#btn-save").addEventListener("click", () =>
@@ -664,6 +729,7 @@ function setupButtons() {
   $("#btn-reset").addEventListener("click", async () => {
     if (!pyodide) return;
     await pyodide.runPythonAsync("reset()");
+    resetElevFiles();
     emit("state_changed", false);
   });
 }
@@ -678,6 +744,7 @@ setupStats();
 setupMap();
 setupMetadata();
 setupClean();
+setupElevation();
 setupPyodide();
 setupPlots();
 

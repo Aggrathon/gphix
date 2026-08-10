@@ -48,8 +48,8 @@ class DEMFile:
             cols = (max(col - 1, 0), min(col + 2, width))
             dem = self.handle.read(1, window=self._window(rows, cols))
             if dem.size:
-                if self.handle.nodata is not None:
-                    dem[dem == self.handle.nodata] = math.nan
+                # if self.handle.nodata is not None:
+                #     dem[dem == self.handle.nodata] = math.nan
                 if dem.size == 1:
                     return float(dem[0, 0])
                 if self._interpn is None:

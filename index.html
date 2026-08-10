@@ -101,18 +101,21 @@
                             <button class="action secondary" id="btn-reset" type="button">Reset</button>
                         </div>
                     </div>
-                    <ul class="col" id="file-list">
+                    <ul class="col file-list" id="file-list">
                         <h3>No Files Loaded</h3>
                     </ul>
                 </div>
             </div>
 
             <div class="tab-content" data-tab="trim" role="tabpanel" aria-labelledby="tab-trim" hidden>
-                <p class="muted">Select a point on the map or plots, then choose which part to trim:<br /><br /></p>
-                <div class="row" id="trim-buttons">
-                    <button id="btn-trim-before" class="action" disabled type="button">Remove Before</button>
-                    <button id="btn-trim-after" class="action" disabled type="button">Remove After</button>
-                </div>
+                <fieldset>
+                    <legend>Remove points</legend>
+                    <p class="muted">Select a point on the map or plots, then choose which part to trim:<br /><br /></p>
+                    <div class="row" id="trim-buttons">
+                        <button id="btn-trim-before" class="action" disabled type="button">Remove Before</button>
+                        <button id="btn-trim-after" class="action" disabled type="button">Remove After</button>
+                    </div>
+                </fieldset>
             </div>
 
             <div class="tab-content" data-tab="insert" role="tabpanel" aria-labelledby="tab-insert" hidden>
@@ -131,7 +134,9 @@
                         <tbody id="point-rows">
                             <tr data-empty>
                                 <td colspan="5">
-                                    <span class="muted">No points added yet. Click "Add Row" or "Copy Selected Point" to begin.</span>
+                                    <span class="muted"
+                                        >No points added yet. Click "Add Row" or "Copy Selected Point" to begin.</span
+                                    >
                                 </td>
                             </tr>
                         </tbody>
@@ -153,30 +158,36 @@
             </div>
 
             <div class="tab-content" data-tab="elevation" role="tabpanel" aria-labelledby="tab-elevation" hidden>
-                <fieldset>
-                    <legend>Insert Elevation</legend>
-                    <div class="field">
-                        <label for="elev-sources">DEM / GPX files</label>
-                        <input
-                            type="file"
-                            id="elev-sources"
-                            multiple
-                            accept=".tiff,.tif,.img,.dat,.hgt,.gpx,.zip,.tar,.tgz,.tar.gz,.tar.bz2,.tar.xz"
-                        />
-                    </div>
-                    <ul class="file-list" id="elev-list"></ul>
-                    <div class="field">
-                        <label for="elev-radius">GPX radius</label>
-                        <input type="number" id="elev-radius" class="small" value="50" />
-                        <span>meters</span>
-                    </div>
-                    <label class="field" for="elev-overwrite">
-                        <span class="label">Overwrite</span>
-                        <span><input type="checkbox" id="elev-overwrite" /></span>
-                    </label>
-                </fieldset>
                 <div class="row">
-                    <button class="action" id="elev-apply" disabled type="button">Apply</button>
+                    <div class="col">
+                        <fieldset>
+                            <legend>Fill in Missing Elevation</legend>
+                            <div class="field">
+                                <label for="elev-sources">Reference files</label>
+                                <input
+                                    type="file"
+                                    id="elev-sources"
+                                    multiple
+                                    accept=".tiff,.tif,.img,.dat,.hgt,.gpx,.zip,.tar,.tgz,.tar.gz,.tar.bz2,.tar.xz"
+                                />
+                            </div>
+                            <label class="field" for="elev-overwrite">
+                                <span class="label">Overwrite existing</span>
+                                <span><input type="checkbox" id="elev-overwrite" /></span>
+                            </label>
+                            <div class="field">
+                                <label for="elev-radius">Radius around reference tracks</label>
+                                <input type="number" id="elev-radius" class="small" value="50" />
+                                <span>meters</span>
+                            </div>
+                        </fieldset>
+                        <div class="row">
+                            <button class="action" id="elev-apply" disabled type="button">Apply</button>
+                        </div>
+                    </div>
+                    <ul class="col file-list" id="elev-list">
+                        <h3>No sources loaded</h3>
+                    </ul>
                 </div>
             </div>
 
