@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 from gphix.elevation import add_elevation_to_gpx
+from gphix.fill import fill_gaps, find_gaps
 from gphix.gpx import GPX, GPXMetadata
 from gphix.trim import trim
 from gphix.utils import (
@@ -262,6 +263,40 @@ def apply_clean(
 def apply_elevation(paths: list[str], radius: float = 50.0, overwrite: bool = False):
     if gpx := clone_next():
         add_elevation_to_gpx(gpx, paths, overwrite=overwrite, radius=radius)
+
+
+def get_gaps(
+    min_distance: float = 200.0, min_time: float = -1.0
+) -> list[dict[str, str | float]]:
+    if current is None:
+        return []
+    return [
+        {
+            "distance": format_distance(g.distance),
+            "start_lat": g.start.lat,
+            "start_lon": g.start.lon,
+            "end_lat": g.end.lat,
+            "end_lon": g.end.lon,
+            "duration": format_duration(g.duration) if g.duration else "",
+            "time": g.start.time.isoformat()
+            if g.start.time
+            else g.end.time.isoformat()
+            if g.end.time
+            else "",
+        }
+        for g in find_gaps(current.gpx, min_distance, min_time)
+    ]
+
+
+def apply_fill_gaps(
+    ref_path: str,
+    min_distance: float = 200.0,
+    min_time: float | None = None,
+    selected_gaps: list[int] | None = None,
+):
+    if gpx := clone_next():
+        ref = GPX(ref_path)
+        return fill_gaps(gpx, ref, min_distance, min_time, selected_gaps)
 
 
 def insert_points(rows: list[dict[str, str | float]]) -> None:

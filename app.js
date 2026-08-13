@@ -81,6 +81,7 @@ async function setupPyodide() {
       "web.py",
       "trim.py",
       "elevation.py",
+      "fill.py",
     ]) {
       const resp = await fetch("src/gphix/" + f);
       py.FS.writeFile("/gphix/" + f, await resp.text());
@@ -326,7 +327,7 @@ function setupMap() {
   on("resize", (_) => setTimeout(map.invalidateSize, 100));
   on("state_changed", renderMap);
   on("point_selected", onSelectedPointMap);
-  on("points_preview", onPreviewPointMap);
+  on("map_preview", onPreviewPointMap);
   map.on("click", async (e) => emit("map_clicked", e.latlng));
 }
 
@@ -393,7 +394,7 @@ function onPreviewPointMap(points) {
     mapPreviewLayer = null;
   }
   if (points && points.length > 0) {
-    if (points.length == 1)
+    if (points.length == 1 && !points[0].length)
       mapPreviewLayer = L.circleMarker(points[0], {
         color: "#7C1BD1",
         radius: 6,
@@ -553,7 +554,6 @@ function setupClean() {
       parseFloat($("#clean-max-dist").value),
       parseFloat($("#clean-max-dist").value),
     ];
-    console.log(args);
     showLoading("Cleaning GPX");
     await pyodide.runPythonAsync(`apply_clean(*${pyodide.toPy(args)})`);
     emit("state_changed", true);
@@ -574,9 +574,7 @@ function createRow(lat = "", lon = "", ele = "", time = "") {
     inp.value = value;
     inp.placeholder = placeholder;
     if (update)
-      inp.addEventListener("input", () =>
-        emit("points_preview", getInsertRows()),
-      );
+      inp.addEventListener("input", () => emit("map_preview", getInsertRows()));
     td.appendChild(inp);
     return td;
   };
@@ -602,18 +600,18 @@ function createRow(lat = "", lon = "", ele = "", time = "") {
   const upBtn = makeActionBtn("\u2191", "Move up", () => {
     const prev = tr.previousElementSibling;
     if (prev && !prev.hasAttribute("data-empty")) tbody.insertBefore(tr, prev);
-    emit("points_preview", getInsertRows());
+    emit("map_preview", getInsertRows());
   });
   const downBtn = makeActionBtn("\u2193", "Move down", () => {
     const next = tr.nextElementSibling;
     if (next) tbody.insertBefore(next, tr);
-    emit("points_preview", getInsertRows());
+    emit("map_preview", getInsertRows());
   });
   const removeBtn = makeActionBtn("\u00d7", "Remove", () => {
     tr.remove();
     if (tbody.children.length === 1)
       tbody.querySelector("[data-empty]").hidden = false;
-    emit("points_preview", getInsertRows());
+    emit("map_preview", getInsertRows());
   });
   removeBtn.classList.add("danger");
   actions.append(upBtn, downBtn, removeBtn);
@@ -621,7 +619,7 @@ function createRow(lat = "", lon = "", ele = "", time = "") {
   tr.appendChild(tdActions);
 
   tbody.appendChild(tr);
-  emit("points_preview", getInsertRows());
+  emit("map_preview", getInsertRows());
 }
 
 function getInsertRows() {
@@ -676,7 +674,7 @@ function setupInsert() {
         .querySelectorAll("tr:not([data-empty])")
         .forEach((e) => e.remove());
       emit("state_changed", true);
-      emit("points_preview", null);
+      emit("map_preview", null);
     } catch (err) {
       showToast("Insert failed: " + err.message);
       console.error(err);
@@ -684,6 +682,118 @@ function setupInsert() {
       hideLoading();
     }
   });
+}
+
+// ── Gaps ──────────────────────────────────────────────────────────────
+let gapList = [];
+
+function setupGaps() {
+  on("state_changed", (hasGpx) => {
+    $("#gaps-find").disabled = !hasGpx;
+    $("#gaps-apply").disabled = true;
+    const hasList = gapList.length > 0;
+    gapList = [];
+    renderGapList();
+    if (hasList) renderGapPreview();
+  });
+
+  $("#gaps-find").addEventListener("click", async () => {
+    if (!pyodide) return;
+    const minDist = parseFloat($("#gaps-min-dist").value);
+    const minTime = parseFloat($("#gaps-min-time").value);
+    showLoading("Finding gaps…");
+    try {
+      gapList = await pyodide.runPythonAsync(
+        `to_js(get_gaps(min_distance=${minDist}, min_time=${minTime}))`,
+      );
+      renderGapList(true);
+      renderGapPreview();
+      $("#gaps-apply").disabled = gapList.length === 0;
+    } catch (err) {
+      showToast("Find gaps failed: " + err.message);
+      console.error(err);
+    } finally {
+      hideLoading();
+    }
+  });
+
+  $("#gaps-apply").addEventListener("click", async () => {
+    if (!pyodide) return;
+    const minDist = parseFloat($("#gaps-min-dist").value);
+    const minTime = parseFloat($("#gaps-min-time").value);
+    const gaps = selectedGapsIdx();
+    if (gaps.length == 0) {
+      showToast("No gaps selected");
+      return;
+    }
+    const refs = $("#gaps-ref");
+    if (refs.files.length == 0) {
+      showToast("No reference GPX track provided");
+      return;
+    }
+    let gapRefPath = null;
+    try {
+      showLoading("Loading dependencies…");
+      await pyodide.loadPackage("scipy");
+      showLoading("Filling gaps…");
+      const file = refs.files[0];
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      gapRefPath = `/tmp/gaps_ref_` + file.name;
+      pyodide.FS.writeFile(gapRefPath, bytes);
+      await pyodide.runPythonAsync(
+        `apply_fill_gaps('${gapRefPath}', min_distance=${minDist}, min_time=${minTime}, selected_gaps=${pyodide.toPy(gaps)})`,
+      );
+      gapList = [];
+      renderGapList();
+      renderGapPreview();
+      $("#gaps-apply").disabled = true;
+      emit("state_changed", true);
+    } catch (err) {
+      showToast("Fill gaps failed: " + err.message);
+      console.error(err);
+    } finally {
+      hideLoading();
+      if (gapRefPath) pyodide.FS.unlink(gapRefPath);
+    }
+  });
+}
+
+function selectedGapsIdx() {
+  if (!gapList || gapList.length == 0) return [];
+  return [...document.querySelectorAll("#gaps-list input:checked")].map((cb) =>
+    parseInt(cb.dataset.idx),
+  );
+}
+
+function renderGapList(after) {
+  const list = $("#gaps-list");
+  if (gapList.length === 0) {
+    list.innerHTML = after ? '<div class="muted">No gaps found</div>' : "";
+    return;
+  }
+  const formatListItem = (g, i) => {
+    const time = g.time
+      ? `${new Date(g.time).toLocaleString()}`
+      : `(${g.start_lat.toFixed(5)}, ${g.start_lon.toFixed(5)})`;
+    const duration = g.duration ? `, ${g.duration}` : "";
+    return `<li data-gap="${i}"><label><input type="checkbox" checked data-idx="${i}">&nbsp; Gap ${i + 1}:&nbsp; ${time}, ${g.distance}${duration}</label></li>`;
+  };
+  list.innerHTML = gapList.map(formatListItem).join("");
+  list
+    .querySelectorAll("input")
+    .forEach((cb) => cb.addEventListener("change", renderGapPreview));
+}
+
+function renderGapPreview() {
+  emit(
+    "map_preview",
+    selectedGapsIdx()
+      .map((i) => gapList[i])
+      .map((g) => [
+        [g.start_lat, g.start_lon],
+        [g.end_lat, g.end_lon],
+      ]),
+  );
 }
 
 // ── Elevation ─────────────────────────────────────────────────────────
@@ -773,6 +883,7 @@ setupStats();
 setupMap();
 setupMetadata();
 setupClean();
+setupGaps();
 setupElevation();
 setupPyodide();
 setupPlots();

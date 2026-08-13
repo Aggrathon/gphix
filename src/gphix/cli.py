@@ -138,8 +138,8 @@ def main(
     fill_parser.add_argument(
         "--min-time",
         type=float,
-        default=None,
-        help="Minimum gap duration in seconds",
+        default=-1.0,
+        help="Minimum gap duration in seconds (default: -1)",
     )
     fill_parser.add_argument(
         "-g",
@@ -448,7 +448,7 @@ def _cmd_fill(
     output: Path,
     list_gaps: bool,
     min_distance: float,
-    min_time: float | None,
+    min_time: float,
     selected_gaps: list[int | list[int]] | None,
     out: TextIO,
     stdin: BytesIO | None = None,

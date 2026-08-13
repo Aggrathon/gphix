@@ -13,9 +13,9 @@ def test_format_distance():
 def test_format_duration():
     """Test _format_duration helper."""
     assert format_duration(0) == "0s"
-    assert format_duration(45) == "45s"
+    assert format_duration(45.213) == "45s"
     assert format_duration(65) == "1m 5s"
-    assert format_duration(3661) == "1h 1m 1s"
+    assert format_duration(3661.454) == "1h 1m 1s"
     assert format_duration(7265) == "2h 1m 5s"
 
 

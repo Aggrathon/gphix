@@ -341,6 +341,14 @@ h3 {
     font-family: monospace;
 }
 
+#gaps-list li {
+    padding: var(--gap-sm) 0;
+}
+
+#gaps-list li label {
+    cursor: pointer;
+}
+
 /* ── Loading overlay ──────────────────────────────────────────── */
 #loading {
     position: fixed;

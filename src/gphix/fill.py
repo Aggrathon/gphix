@@ -39,9 +39,7 @@ class Gap:
     duration: float | None = None
 
 
-def find_gaps(
-    gpx: GPX, min_distance: float = 200.0, min_time: float | None = None
-) -> list[Gap]:
+def find_gaps(gpx: GPX, min_distance: float = 200.0, min_time: float = -1) -> list[Gap]:
     """Find gaps between consecutive segments."""
     gaps = []
     for seg_a, seg_b in pairwise(gpx.segments(True)):
@@ -190,7 +188,7 @@ def fill_gap(gpx: GPX, matcher: ReferencePaths, gap: Gap) -> bool:
         return False
     builder = gpx.add_track()
     if gap.duration is not None:
-        interpolate_time_linear(path, gap.start.time, gap.end.time)
+        interpolate_time_linear(path, gap.start.time, gap.end.time)  # type: ignore
     elif gap.start.time is not None or gap.end.time is not None:
         stats = gpx.stats(False)
         if stats.duration > 0 and stats.distance > 0:
@@ -207,7 +205,7 @@ def fill_gaps(
     gpx: GPX,
     ref: GPX,
     min_distance: float = 200.0,
-    min_time: float | None = None,
+    min_time: float = -1.0,
     selected_gaps: list[int] | None = None,
 ) -> int:
     """Find all gaps and fill the selected ones. Returns the number of gaps filled."""
