@@ -311,3 +311,10 @@ def insert_points(rows: list[dict[str, str | float]]) -> None:
             time = datetime.fromisoformat(time) if time else None  # type:ignore
             ele = float(ele) if ele is not None and ele != "" else None
             builder.add_point(lat, lon, ele, time)
+
+
+def save_gpx() -> str | None:
+    """Return the current GPX as an XML string."""
+    if current is None:
+        return None
+    return current.gpx.to_string()

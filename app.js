@@ -857,9 +857,46 @@ function resetElevFiles() {
 
 // ── State and File buttons ───────────────────────────────────────────
 function setupButtons() {
-  $("#btn-save").addEventListener("click", () =>
-    showToast("Save — not implemented yet"),
-  );
+  on("state_changed", (hasGpx) => ($("#btn-save").disabled = !hasGpx));
+
+  $("#btn-save").addEventListener("click", async () => {
+    showLoading("Saving GPX");
+    try {
+      const files = await pyodide.runPythonAsync("get_files()");
+      if (files.length == 0) return showToast("No GPX to save");
+      const name = files[0].replace(/\.gpx$/i, "_processed.gpx");
+      const xml = await pyodide.runPythonAsync("save_gpx()");
+      const blob = new Blob([xml], { type: "application/gpx+xml" });
+      if ("showSaveFilePicker" in window) {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: name,
+          types: [
+            {
+              description: "GPX File",
+              accept: { "application/gpx+xml": [".gpx"] },
+            },
+          ],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+    } catch (err) {
+      if (err.name !== "AbortError") showToast("Save failed: " + err.message);
+    } finally {
+      hideLoading();
+    }
+  });
+  
   $("#btn-undo").addEventListener("click", async () => {
     if (!pyodide) return;
     const hasGpx = await pyodide.runPythonAsync("to_js(undo())");
