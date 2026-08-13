@@ -235,18 +235,13 @@ class GPX:
     @classmethod
     def merge(cls, sources: list[GPX | PathLike | BytesIO]) -> GPX:
         """Merge multiple GPX files or objects into a single GPX object."""
-        merged = cls(None)
-        no_metadata = True
-        for source in sources:
+        first = sources[0]
+        merged: GPX = copy.deepcopy(first) if isinstance(first, GPX) else GPX(first)
+        for source in sources[1:]:
             src: GPX = source if isinstance(source, GPX) else GPX(source)
             for child in src.root:
                 tag = child.tag.split("}")[-1]
-                if tag == "metadata" and no_metadata:
-                    for _ in child.iter():
-                        merged.root.append(child)
-                        no_metadata = False
-                        break
-                elif tag in {"trk", "wpt", "rte"}:
+                if tag in {"trk", "wpt", "rte"}:
                     merged.root.append(copy.deepcopy(child))
         return merged
 
