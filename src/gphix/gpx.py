@@ -439,21 +439,26 @@ class GPX:
 
     def clean(
         self,
-        min_size: int = 1,
-        add_bounds: bool = False,
         outliers: bool = False,
         max_distance: float = 100.0,
         max_time: float = float("inf"),
+        min_size: int = 1,
+        merge_tracks: bool = False,
+        add_bounds: bool = False,
     ):
         """Remove empty segments, tracks, outliers, and refresh metadata.
 
         Args:
-            min_size: Remove segments shorter than this.
-            add_bounds: Create metadata time and coordinate bounds if not existing.
             outliers: Remove consecutive points farther than *max_distance*.
             max_distance: Threshold in metres for outlier removal.
             max_time: Threshold in seconds for outlier removal.
+            min_size: Remove segments shorter than this.
+            merge_tracks: Merge all tracks into a single track.
+            add_bounds: Create metadata time and coordinate bounds if not existing.
         """
+        if outliers:
+            self._remove_outliers(max_distance, max_time)
+
         for trk in self.root.iterfind("gpx:trk", self.namespaces):
             for seg in trk.iterfind("gpx:trkseg", self.namespaces):
                 if len(seg) < min_size:
@@ -464,8 +469,19 @@ class GPX:
             if len(rte) == 0:
                 self.root.remove(rte)
 
-        if outliers:
-            self._remove_outliers(max_distance, max_time)
+        if merge_tracks:
+            track_count = len(self.root.findall("gpx:trk", self.namespaces))
+            if track_count >= 2:
+                segments = self.segments(sorted=True, routes=False)
+                merged = copy.deepcopy(self.root.find("gpx:trk", self.namespaces))
+                assert merged is not None
+                for seg in merged.findall("gpx:trkseg", self.namespaces):
+                    merged.remove(seg)
+                for seg in segments:
+                    merged.append(copy.deepcopy(seg.segment))
+                for trk in self.root.findall("gpx:trk", self.namespaces):
+                    self.root.remove(trk)
+                self.root.append(merged)
 
         meta = self.metadata()
         if add_bounds and meta is None:

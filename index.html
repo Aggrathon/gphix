@@ -233,13 +233,6 @@
 
             <div class="tab-content" data-tab="clean" role="tabpanel" aria-labelledby="tab-clean" hidden>
                 <fieldset>
-                    <legend>Clean Tracks</legend>
-                    <div class="field">
-                        <label for="clean-size">Min points</label>
-                        <input type="number" id="clean-size" class="small" value="3" />
-                    </div>
-                </fieldset>
-                <fieldset>
                     <legend>Clean Outliers</legend>
                     <label class="field" for="clean-outliers">
                         <span class="label">Remove outliers</span>
@@ -255,6 +248,17 @@
                         <input type="number" id="clean-max-time" class="small" value="70" disabled />
                         <span>seconds</span>
                     </div>
+                </fieldset>
+                <fieldset>
+                    <legend>Clean Tracks</legend>
+                    <div class="field">
+                        <label for="clean-size">Min points</label>
+                        <input type="number" id="clean-size" class="small" value="3" />
+                    </div>
+                    <label class="field" for="clean-merge">
+                        <span class="label">Merge tracks</span>
+                        <span><input type="checkbox" id="clean-merge" /></span>
+                    </label>
                 </fieldset>
                 <fieldset>
                     <legend>Clean Metadata</legend>

@@ -251,3 +251,21 @@ def test_clean():
     gpx.clean(outliers=True, max_time=50, min_size=2)
     assert len(gpx.segments()[-1]) == 9
     assert gpx.metadata().time > time
+
+
+def test_clean_merge_tracks():
+    gpx = create_gpx(
+        (Point(1.0, 1.0), Point(2.0, 2.0)),
+        (Point(1.0, 1.0, time=600),),
+        (Point(2.0, 2.0, time=100),),
+        (Point(3.0, 3.0, time=300),),
+        waypoints=[Point(5.0, 5.0)],
+    )
+    gpx.root.find("gpx:trk", gpx.namespaces).set("name", "first")
+    gpx.clean(merge_tracks=True)
+    assert len(gpx.segments()) == 4
+    assert len(gpx.root.findall("gpx:trk", gpx.namespaces)) == 1
+    assert gpx.root.find("gpx:trk", gpx.namespaces).get("name") == "first"
+    assert len(list(gpx.points())) == 6
+    assert gpx.waypoints().__next__() is not None
+    assert [p.latitude for p in gpx.points()] == [1.0, 2.0, 2.0, 3.0, 1.0, 5.0]

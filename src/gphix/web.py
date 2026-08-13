@@ -250,14 +250,15 @@ def trim_after(seg_idx: int, pt_idx: int):
 
 
 def apply_clean(
-    min_size: int = 1,
-    add_bounds: bool = False,
     outliers: bool = False,
     max_distance: float = 100.0,
     max_time: float = 70.0,
+    min_size: int = 1,
+    merge_tracks: bool = False,
+    add_bounds: bool = False,
 ):
     if gpx := clone_next():
-        gpx.clean(min_size, add_bounds, outliers, max_distance, max_time)
+        gpx.clean(outliers, max_distance, max_time, min_size, merge_tracks, add_bounds)
 
 
 def apply_elevation(paths: list[str], radius: float = 50.0, overwrite: bool = False):

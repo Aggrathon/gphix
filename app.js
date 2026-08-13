@@ -546,18 +546,24 @@ function setupClean() {
   });
 
   $("#clean-apply").addEventListener("click", async () => {
-    if (!pyodide) return;
-    const args = [
-      parseInt($("#clean-size").value),
-      $("#clean-bounds").checked,
-      $("#clean-outliers").checked,
-      parseFloat($("#clean-max-dist").value),
-      parseFloat($("#clean-max-dist").value),
-    ];
-    showLoading("Cleaning GPX");
-    await pyodide.runPythonAsync(`apply_clean(*${pyodide.toPy(args)})`);
-    emit("state_changed", true);
-    hideLoading();
+    try {
+      showLoading("Cleaning GPX");
+      const args = [
+        $("#clean-outliers").checked,
+        parseFloat($("#clean-max-dist").value),
+        parseFloat($("#clean-max-time").value),
+        parseInt($("#clean-size").value),
+        $("#clean-merge").checked,
+        $("#clean-bounds").checked,
+      ];
+      await pyodide.runPythonAsync(`apply_clean(*${pyodide.toPy(args)})`);
+      emit("state_changed", true);
+    } catch (err) {
+      showToast("Cleaning failed: " + err.message);
+      console.error(err);
+    } finally {
+      hideLoading();
+    }
   });
 }
 

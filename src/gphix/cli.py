@@ -182,12 +182,6 @@ def main(
     _add_input_arg(clean_parser)
     _add_output_arg(clean_parser)
     clean_parser.add_argument(
-        "--bounds", action="store_true", help="Add bounds to metadata"
-    )
-    clean_parser.add_argument(
-        "--min-size", type=int, default=1, help="Remove smaller segments (default: 1)"
-    )
-    clean_parser.add_argument(
         "--outliers",
         action="store_true",
         help="Remove singular points with odd jumps (based on --max-distance or --max-time)",
@@ -203,6 +197,15 @@ def main(
         type=float,
         default=float("inf"),
         help="Outlier threshold in seconds (default: inf)",
+    )
+    clean_parser.add_argument(
+        "--min-size", type=int, default=1, help="Remove smaller segments (default: 1)"
+    )
+    clean_parser.add_argument(
+        "--merge-tracks", action="store_true", help="Merge all tracks into one"
+    )
+    clean_parser.add_argument(
+        "--bounds", action="store_true", help="Add bounds to metadata"
     )
 
     # --- meta ---
@@ -267,11 +270,12 @@ def main(
         _cmd_clean(
             parsed.input,
             parsed.output,
-            parsed.min_size,
-            parsed.bounds,
             parsed.outliers,
             parsed.max_distance,
             parsed.max_time,
+            parsed.min_size,
+            parsed.merge_tracks,
+            parsed.bounds,
             out,
             stdin,
         )
@@ -505,17 +509,25 @@ def _cmd_trim(
 def _cmd_clean(
     input_file: Path,
     output: Path,
-    min_size: int,
-    add_bounds: bool,
     outliers: bool,
     max_distance: float,
     max_time: float,
+    min_size: int,
+    merge_tracks: bool,
+    add_bounds: bool,
     out: TextIO,
     stdin: BytesIO | None = None,
 ):
     """Handle the ``clean`` subcommand."""
     gpx = _load_gpx(input_file, stdin)
-    gpx.clean(min_size, add_bounds, outliers, max_distance, max_time)
+    gpx.clean(
+        outliers=outliers,
+        max_distance=max_distance,
+        max_time=max_time,
+        min_size=min_size,
+        merge_tracks=merge_tracks,
+        add_bounds=add_bounds,
+    )
     if output != Path("-"):
         gpx.write(output)
         print(f"Cleaned {input_file} → {output}", file=out)
