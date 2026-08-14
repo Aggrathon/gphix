@@ -349,6 +349,10 @@ h3 {
     cursor: pointer;
 }
 
+#track-cards {
+    list-style: none;
+}
+
 /* ── Loading overlay ──────────────────────────────────────────── */
 #loading {
     position: fixed;
@@ -456,10 +460,10 @@ h3 {
 
 th {
     text-align: left;
-    font-size: var(--font-sm);
+    font-size: var(--font-md);
     color: var(--text-secondary);
     padding: var(--gap-md);
-    margin-bottom: var(--gap-md);
+    padding-bottom: 0px;
     border-bottom: 2px solid var(--border);
 }
 
@@ -470,10 +474,6 @@ td {
 
 td input {
     width: 100%;
-}
-
-tr:empty:not(:last-child) {
-    display: none;
 }
 
 .btn-icon {

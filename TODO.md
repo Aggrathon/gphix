@@ -32,7 +32,6 @@
     - [x] Merge
     - [x] Stats
     - [x] Metadata
-      - [ ] For tracks
     - [x] Clean
     - [x] Trim
     - [x] Insert

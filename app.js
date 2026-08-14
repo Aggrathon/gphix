@@ -536,6 +536,54 @@ function setupMetadata() {
   on("state_changed", loadMetadata);
 }
 
+// ── Track Metadata ────────────────────────────────────────────────
+async function loadTrackMetadata(hasGpx) {
+  const cards = $("#track-cards");
+  $("#track-apply").disabled = true;
+  if (!pyodide || !hasGpx) {
+    cards.innerHTML = '<li class="muted field">No tracks</li>';
+    return;
+  }
+  const tracks = await pyodide.runPythonAsync("to_js(get_track_metadata())");
+  if (tracks.length == 0)
+    cards.innerHTML = '<li class="muted field">No tracks</li>';
+  else cards.innerHTML = "";
+  for (let i = 0; i < tracks.length; i++) {
+    const li = document.createElement("li");
+    li.className = "track-card";
+    li.innerHTML = `
+      <fieldset>
+        <legend>Track ${i}${tracks[i].name ? ": " + escHtml(tracks[i].name) : ""}</legend>
+        <div class="field"><label for="track-${i}-name">Name</label><input type="text" id="track-${i}-name" /></div>
+        <div class="field"><label for="track-${i}-description">Description</label><input type="text" id="track-${i}-description" /></div>
+        <div class="field"><label for="track-${i}-type">Type</label><input type="text" id="track-${i}-type" /></div>
+      </fieldset>
+    `;
+    cards.appendChild(li);
+    for (const field of ["name", "description", "type"]) {
+      $(`#track-${i}-${field}`).value = tracks[i][field] ?? "";
+      $(`#track-${i}-${field}`).addEventListener("input", () => {
+        $("#track-apply").disabled = false;
+      });
+    }
+  }
+}
+
+function setupTrackMetadata() {
+  $("#track-apply").addEventListener("click", async () => {
+    const len = $("#track-cards").children.length;
+    const tracks = [...Array(len).keys()].map((i) => ({
+      name: $(`#track-${i}-name`).value,
+      description: $(`#track-${i}-description`).value,
+      type: $(`#track-${i}-type`).value,
+    }));
+    $("#track-cards").innerHTML = '<li class="muted field">Updating tracks</li>';
+    await pyodide.runPythonAsync(`set_track_metadata(${pyodide.toPy(tracks)})`);
+    emit("state_changed", true);
+  });
+  on("state_changed", loadTrackMetadata);
+}
+
 // ── Clean ──────────────────────────────────────────────────────────────
 function setupClean() {
   on("state_changed", (hasGpx) => ($("#clean-apply").disabled = !hasGpx));
@@ -925,6 +973,7 @@ setupButtons();
 setupStats();
 setupMap();
 setupMetadata();
+setupTrackMetadata();
 setupClean();
 setupGaps();
 setupElevation();

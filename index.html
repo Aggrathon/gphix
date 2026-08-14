@@ -74,6 +74,7 @@
         <nav id="tabs" role="tablist" aria-label="Tabs">
             <button role="tab" aria-selected="true" id="tab-data" data-tab="data" type="button">Data</button>
             <button role="tab" aria-selected="false" id="tab-meta" data-tab="meta" type="button">Metadata</button>
+            <button role="tab" aria-selected="false" id="tab-tracks" data-tab="tracks" type="button">Tracks</button>
             <button role="tab" aria-selected="false" id="tab-clean" data-tab="clean" type="button">Clean</button>
             <button role="tab" aria-selected="false" id="tab-trim" data-tab="trim" type="button">Trim</button>
             <button role="tab" aria-selected="false" id="tab-insert" data-tab="insert" type="button">Insert</button>
@@ -292,6 +293,15 @@
                 </fieldset>
                 <div class="row">
                     <button class="action" id="meta-apply" disabled type="button">Apply</button>
+                </div>
+            </div>
+
+            <div class="tab-content" data-tab="tracks" role="tabpanel" aria-labelledby="tab-tracks" hidden>
+                <ul id="track-cards">
+                    <li class="muted field">No tracks</li>
+                </ul>
+                <div class="row">
+                    <button class="action" id="track-apply" disabled type="button">Apply</button>
                 </div>
             </div>
         </div>

@@ -225,6 +225,23 @@ def get_files() -> list[str]:
         return current.files
 
 
+def get_track_metadata() -> list[dict[str, str | None]]:
+    if current is None:
+        return []
+    return [
+        {"name": t.name, "description": t.description, "type": t.track_type}
+        for t in current.gpx.tracks()
+    ]
+
+
+def set_track_metadata(tracks: list[dict[str, str]]) -> None:
+    if gpx := clone_next():
+        for t, meta in zip(gpx.tracks(), tracks):
+            t.name = meta.get("name") or None
+            t.description = meta.get("description") or None
+            t.track_type = meta.get("type") or None
+
+
 def set_metadata(
     name: str, description: str, author: str, email: str, copyright: str, keywords: str
 ):
@@ -292,7 +309,7 @@ def get_gaps(
 def apply_fill_gaps(
     ref_path: str,
     min_distance: float = 200.0,
-    min_time: float | None = None,
+    min_time: float = -1.0,
     selected_gaps: list[int] | None = None,
 ):
     if gpx := clone_next():
