@@ -5,50 +5,79 @@ import xml.etree.ElementTree as ET
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from io import BytesIO
+from io import BytesIO, StringIO
 from os import PathLike
 
 from .utils import distance, last, update_bounds
+
+PointTuple = (
+    tuple[float, float]
+    | tuple[float, float, float | None]
+    | tuple[float, float, float | None, datetime | None]
+)
 
 
 @dataclass(slots=True)
 class GPXSegment:
     """A GPX track segment or route with its parent and point elements."""
 
-    track: ET.Element
-    segment: ET.Element
+    parent: ET.Element
+    element: ET.Element
     uri: str
     namespaces: dict[str, str]
     point_tag: str = "trkpt"
 
+    def add_point(
+        self,
+        lat: float,
+        lon: float,
+        ele: float | None = None,
+        time: datetime | None = None,
+    ) -> GPXPoint:
+        """Add a point to this segment and return its wrapper."""
+        pt = ET.SubElement(
+            self.element, f"{{{self.uri}}}{self.point_tag}", lat=str(lat), lon=str(lon)
+        )
+        point = GPXPoint(pt, self.uri, self.namespaces)
+        if ele is not None:
+            point.elevation = ele
+        if time is not None:
+            point.time = time
+        return point
+
+    def add_points(self, *coords: PointTuple):
+        """Add points to this segment."""
+        for coord in coords:
+            self.add_point(*coord)
+
     def first_point(self) -> GPXPoint | None:
         """Return the first point in this segment, or None if empty."""
-        pt = self.segment.find(f"gpx:{self.point_tag}", self.namespaces)
+        pt = self.element.find(f"gpx:{self.point_tag}", self.namespaces)
         if pt is not None:
             return GPXPoint(pt, self.uri, self.namespaces)
         return None
 
     def last_point(self) -> GPXPoint | None:
         """Return the last point in this segment, or None if empty."""
-        pt = last(self.segment.iterfind(f"gpx:{self.point_tag}", self.namespaces))
+        pt = last(self.element.iterfind(f"gpx:{self.point_tag}", self.namespaces))
         if pt is not None:
             return GPXPoint(pt, self.uri, self.namespaces)
         return None
 
     def points(self) -> Iterator[GPXPoint]:
         """Yield `GPXPoint` for each point in this segment."""
-        for pt in self.segment.iterfind(f"gpx:{self.point_tag}", self.namespaces):
+        for pt in self.element.iterfind(f"gpx:{self.point_tag}", self.namespaces):
             yield GPXPoint(pt, self.uri, self.namespaces)
 
     def remove(self, target: GPXPoint | None):
         """Remove a point (or the whole segment if None) from the track."""
         if target is None:
-            self.track.remove(self.segment)
+            self.parent.remove(self.element)
         else:
-            self.segment.remove(target.element)
+            self.element.remove(target.element)
 
     def __len__(self) -> int:
-        return len(self.segment)
+        return len(self.element)
 
 
 @dataclass(slots=True)
@@ -123,43 +152,59 @@ class GPXStats:
     tracks: int
 
 
-class TrackBuilder:
-    """Builder for adding track segments and points."""
+@dataclass(slots=True)
+class GPXTrack:
+    """Wrapper for a GPX track (<trk>) element with metadata and segment support."""
 
-    def __init__(self, root: ET.Element, uri: str, namespaces: dict[str, str]):
-        track = ET.SubElement(root, f"{{{uri}}}trk")
-        self._segment = ET.SubElement(track, f"{{{uri}}}trkseg")
-        self._namespaces = namespaces
-        self._uri = uri
+    element: ET.Element
+    uri: str
+    namespaces: dict[str, str]
 
-    def add_point(
-        self,
-        lat: float,
-        lon: float,
-        ele: float | None = None,
-        time: datetime | None = None,
-    ) -> GPXPoint:
-        """Add a point to this track segment and return its wrapper."""
-        pt = ET.SubElement(
-            self._segment, f"{{{self._uri}}}trkpt", lat=str(lat), lon=str(lon)
-        )
-        point = GPXPoint(pt, self._uri, self._namespaces)
-        if ele is not None:
-            point.elevation = ele
-        if time is not None:
-            point.time = time
-        return point
+    def _get(self, tag: str) -> str | None:
+        el = self.element.find(f"gpx:{tag}", self.namespaces)
+        return el.text if el is not None else None
 
-    def add_points(
-        self,
-        *coords: tuple[float, float]
-        | tuple[float, float, float | None]
-        | tuple[float, float, float | None, datetime | None],
-    ) -> TrackBuilder:
-        """Call add_point multiple times."""
-        for coord in coords:
-            self.add_point(*coord)
-        return self
+    def _set(self, tag: str, value: str | None):
+        el = self.element.find(f"gpx:{tag}", self.namespaces)
+        if not value:
+            if el is not None:
+                self.element.remove(el)
+        else:
+            if el is None:
+                el = ET.SubElement(self.element, f"{{{self.uri}}}{tag}")
+            el.text = value
+
+    @property
+    def name(self) -> str | None:
+        return self._get("name")
+
+    @name.setter
+    def name(self, value: str | None) -> None:
+        self._set("name", value)
+
+    @property
+    def description(self) -> str | None:
+        return self._get("desc")
+
+    @description.setter
+    def description(self, value: str | None) -> None:
+        self._set("desc", value)
+
+    @property
+    def track_type(self) -> str | None:
+        return self._get("type")
+
+    @track_type.setter
+    def track_type(self, value: str | None) -> None:
+        self._set("type", value)
+
+    def add_segment(self, *coords: PointTuple) -> GPXSegment:
+        """Create a new <trkseg> with optional points and return it."""
+        seg = ET.SubElement(self.element, f"{{{self.uri}}}trkseg")
+        result = GPXSegment(self.element, seg, self.uri, self.namespaces)
+        if coords:
+            result.add_points(*coords)
+        return result
 
 
 @dataclass(slots=True)
@@ -169,6 +214,16 @@ class GPXPoint:
     element: ET.Element
     uri: str
     namespaces: dict[str, str]
+
+    def _get(self, tag: str) -> str | None:
+        el = self.element.find(f"gpx:{tag}", self.namespaces)
+        return el.text if el is not None else None
+
+    def _set(self, tag: str, text: str) -> None:
+        el = self.element.find(f"gpx:{tag}", self.namespaces)
+        if el is None:
+            el = ET.SubElement(self.element, f"{{{self.uri}}}{tag}")
+        el.text = text
 
     @property
     def latitude(self) -> float:
@@ -180,30 +235,22 @@ class GPXPoint:
 
     @property
     def elevation(self) -> float | None:
-        ele = self.element.find("gpx:ele", self.namespaces)
-        return float(ele.text) if ele is not None and ele.text is not None else None
+        ele = self._get("ele")
+        return float(ele) if ele else None
 
     @elevation.setter
-    def elevation(self, value: float):
-        ele = self.element.find("gpx:ele", self.namespaces)
-        if ele is None:
-            ele = ET.SubElement(self.element, f"{{{self.uri}}}ele")
-        ele.text = f"{value:.3g}"
+    def elevation(self, value: float) -> None:
+        self._set("ele", f"{value:.5g}")
 
     @property
     def time(self) -> datetime | None:
         """ISO 8601 time parsed as datetime, or None if absent."""
-        t = self.element.find("gpx:time", self.namespaces)
-        if t is None or t.text is None:
-            return None
-        return datetime.fromisoformat(t.text)
+        t = self._get("time")
+        return datetime.fromisoformat(t) if t else None
 
     @time.setter
-    def time(self, value: datetime):
-        t = self.element.find("gpx:time", self.namespaces)
-        if t is None:
-            t = ET.SubElement(self.element, f"{{{self.uri}}}time")
-        t.text = value.isoformat()
+    def time(self, value: datetime) -> None:
+        self._set("time", value.isoformat())
 
     def __bool__(self) -> bool:
         return True
@@ -212,7 +259,7 @@ class GPXPoint:
 class GPX:
     """Lightweight GPX parser."""
 
-    def __init__(self, file_source: PathLike | BytesIO | None = None):
+    def __init__(self, file_source: PathLike | str | BytesIO | StringIO | None = None):
         self.uri = "http://www.topografix.com/GPX/1/1"
         if file_source is None:
             self.root = ET.Element(f"{{{self.uri}}}gpx", version="1.1", creator="GPhiX")
@@ -223,9 +270,39 @@ class GPX:
             self.uri = self.root.attrib.get("xmlns", self.uri)
         self.namespaces: dict[str, str] = {"gpx": self.uri}
 
-    def add_track(self) -> TrackBuilder:
-        """Add a track segment to the GPX and return a builder."""
-        return TrackBuilder(self.root, self.uri, self.namespaces)
+    def add_track(
+        self,
+        *coords: PointTuple,
+        name: str | None = None,
+        description: str | None = None,
+        track_type: str | None = None,
+    ) -> GPXTrack:
+        """Add a track to the GPX and return its wrapper.
+
+        Args:
+            *coords: Optional points in a new segment.
+            name: Track name.
+            description: Track description.
+            track_type: Track type.
+        """
+        el = ET.SubElement(self.root, f"{{{self.uri}}}trk")
+        track = GPXTrack(el, self.uri, self.namespaces)
+        if name is not None:
+            track.name = name
+        if description is not None:
+            track.description = description
+        if track_type is not None:
+            track.track_type = track_type
+        if coords:
+            track.add_segment(*coords)
+        return track
+
+    def tracks(self) -> list[GPXTrack]:
+        """Return ``GPXTrack`` wrappers for all tracks in document order."""
+        return [
+            GPXTrack(trk, self.uri, self.namespaces)
+            for trk in self.root.iterfind("gpx:trk", self.namespaces)
+        ]
 
     def add_waypoint(self, lat: float, lon: float) -> GPXPoint:
         """Add a waypoint to the GPX and return its wrapper."""
@@ -478,7 +555,7 @@ class GPX:
                 for seg in merged.findall("gpx:trkseg", self.namespaces):
                     merged.remove(seg)
                 for seg in segments:
-                    merged.append(copy.deepcopy(seg.segment))
+                    merged.append(copy.deepcopy(seg.element))
                 for trk in self.root.findall("gpx:trk", self.namespaces):
                     self.root.remove(trk)
                 self.root.append(merged)

@@ -8,8 +8,8 @@
 - [x] Fill gaps from reference GPX
   - [ ] What about periods with frozen GPS coordinates?
 - [x] Update metadata
+  - [x] What about metadata for tracks
 - [x] Clean GPX
-  - [ ] Merge tracks?
 - [x] CLI
   - [x] Stats
   - [x] Merge
@@ -19,24 +19,25 @@
   - [x] Fill
   - [x] Clean
   - [x] Metadata 
-- [ ] Web UI
-  - [ ] Graphs
+- [x] Web UI
+  - [x] Graphs
     - [x] Map
     - [x] Line plots
       - [x] distance over time
       - [x] elevation profile
-      - [ ] third?
     - [x] Selectable points
-    - [ ] Preview function on the graphs
-  - [ ] Functions
+    - [x] Preview function on the graphs
+  - [x] Functions
     - [x] Load
     - [x] Merge
     - [x] Stats
     - [x] Metadata
+      - [ ] For tracks
     - [x] Clean
     - [x] Trim
-    - [ ] Insert
-    - [ ] Elevation
-    - [ ] Fill
+    - [x] Insert
+    - [x] Elevation
+    - [x] Fill
   - [x] Pyodide (to use the library)
   - [x] Undo
+  - [x] Save

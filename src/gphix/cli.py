@@ -30,14 +30,11 @@ def _parse_trim_value(s: str) -> tuple[float, Literal["i", "s", "m", "p"]]:
         return int(s), "i"
 
 
-def _add_output_arg(parser: argparse.ArgumentParser):
+def _add_output_arg(parser: argparse.ArgumentParser, default: bool = True):
     """Add the shared -o/--output argument to a parser."""
+    help = f"Output GPX file path ({'defaults to ' if default else ''} - for stdout)"
     parser.add_argument(
-        "-o",
-        "--output",
-        type=Path,
-        default="-",
-        help="Output GPX file path (defaults to - for stdout)",
+        "-o", "--output", type=Path, default="-" if default else None, help=help
     )
 
 
@@ -208,6 +205,17 @@ def main(
         "--bounds", action="store_true", help="Add bounds to metadata"
     )
 
+    # --- tracks ---
+    tracks_parser = subparsers.add_parser("tracks", help="View or edit track metadata")
+    _add_input_arg(tracks_parser)
+    _add_output_arg(tracks_parser, default=False)
+    tracks_parser.add_argument(
+        "-t", "--track", type=int, default=None, help="Edit only target track"
+    )
+    tracks_parser.add_argument("--name", default=None, help="Set name")
+    tracks_parser.add_argument("--description", default=None, help="Set description")
+    tracks_parser.add_argument("--type", default=None, help="Set type")
+
     # --- meta ---
     meta_parser = subparsers.add_parser(
         "meta", help="Edit metadata fields of a GPX file"
@@ -292,6 +300,17 @@ def main(
             out,
             stdin,
         )
+    elif parsed.command == "tracks":
+        _cmd_tracks(
+            parsed.input,
+            parsed.output,
+            parsed.track,
+            parsed.name,
+            parsed.description,
+            parsed.type,
+            out,
+            stdin,
+        )
     else:
         parser.print_help(out)
 
@@ -338,6 +357,10 @@ def _print_stats(gpx: GPX, out: TextIO, prefix: str = "  ") -> GPXStats:
     stats = gpx.stats()
     print(f"{prefix}Points: {stats.points}", file=out)
     print(f"{prefix}Tracks: {stats.tracks}", file=out)
+    tracks = gpx.tracks()
+    if tracks and any(t.name for t in tracks):
+        for track in gpx.tracks():
+            print(f"  - {track.name or '(no name)'}", file=out)
     print(f"{prefix}Distance: {format_distance(stats.distance)}", file=out)
     print(f"{prefix}Duration: {format_duration(stats.duration)}", file=out)
     if stats.start_time and stats.end_time:
@@ -428,16 +451,8 @@ def _cmd_insert(
 ):
     """Handle the ``insert`` subcommand."""
     gpx = _load_gpx(input_file, stdin)
-
     parsed = _parse_points(tokens)
-    track = gpx.add_track()
-    for lat, lon, ele, time in parsed:
-        pt = track.add_point(lat, lon)
-        if ele is not None:
-            pt.elevation = ele
-        if time is not None:
-            pt.time = time
-
+    gpx.add_track(*parsed)
     if output != Path("-"):
         gpx.write(output)
         print(f"Inserted {len(parsed)} point(s) into {input_file} → {output}", file=out)
@@ -572,3 +587,35 @@ def _cmd_meta(
         _print_stats(gpx, out)
     else:
         out.write(gpx.to_string())
+
+
+def _cmd_tracks(
+    input_file: Path,
+    output: Path | None,
+    track_index: int | None,
+    name: str | None,
+    description: str | None,
+    track_type: str | None,
+    out: TextIO,
+    stdin: BytesIO | None = None,
+):
+    """Handle the ``tracks`` subcommand."""
+    gpx = _load_gpx(input_file, stdin)
+    tracks = gpx.tracks()
+    for t in tracks if track_index is None else (tracks[track_index],):
+        if name is not None:
+            t.name = name
+        if description is not None:
+            t.description = description
+        if track_type is not None:
+            t.track_type = track_type
+    if output == Path("-"):
+        return out.write(gpx.to_string())
+    if output:
+        gpx.write(output)
+        print(f"Updated track metadata for {input_file} → {output}", file=out)
+    for i, track in enumerate(gpx.tracks()):
+        print(f"Track {i}:", file=out)
+        print(f"    Name: {track.name or ''}", file=out)
+        print(f"    Desc: {track.description or ''}", file=out)
+        print(f"    Type: {track.track_type or ''}", file=out)

@@ -186,7 +186,6 @@ def fill_gap(gpx: GPX, matcher: ReferencePaths, gap: Gap) -> bool:
     path = matcher.find_path(gap)
     if path is None:
         return False
-    builder = gpx.add_track()
     if gap.duration is not None:
         interpolate_time_linear(path, gap.start.time, gap.end.time)  # type: ignore
     elif gap.start.time is not None or gap.end.time is not None:
@@ -194,10 +193,7 @@ def fill_gap(gpx: GPX, matcher: ReferencePaths, gap: Gap) -> bool:
         if stats.duration > 0 and stats.distance > 0:
             velocity = stats.distance / stats.duration
             interpolate_time_fill(path, gap.start.time, gap.end.time, velocity)
-    for pt in path:
-        p = builder.add_point(pt.lat, pt.lon, pt.ele)
-        if pt.time is not None:
-            p.time = pt.time
+    gpx.add_track(*((pt.lat, pt.lon, pt.ele, pt.time) for pt in path))
     return True
 
 

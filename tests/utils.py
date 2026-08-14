@@ -14,7 +14,10 @@ class Point:
     lat: float
     lon: float
     ele: float | None = None
-    time: float | None = None  # seconds offset from base_time
+    time: float | None = None
+
+    def date(self, time: datetime) -> None | datetime:
+        return (time + timedelta(seconds=self.time)) if self.time is not None else None
 
 
 def create_gpx(
@@ -37,11 +40,7 @@ def create_gpx(
     default = [Point(-48.8, 2.2), Point(51.4, -0.8), Point(40.1, -74.6)]
     gpx = GPX(None)
     for track in tracks or (default,):
-        tr = gpx.add_track()
-        for p in track:
-            pt = tr.add_point(p.lat, p.lon, p.ele)
-            if p.time is not None:
-                pt.time = base_time + timedelta(seconds=p.time)
+        gpx.add_track(*((p.lat, p.lon, p.ele, p.date(base_time)) for p in track))
     for wpt in waypoints or ():
         if wpt.ele is None:
             gpx.add_waypoint(wpt.lat, wpt.lon)

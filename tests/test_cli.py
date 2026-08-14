@@ -14,8 +14,10 @@ from gphix.gpx import GPX, GPXMetadata
 from .utils import Point, create_gpx_file, create_tif_grid, no_np_warn
 
 
-def _file_to_stdin(path: Path) -> BytesIO:
+def _file_to_stdin(path: Path | GPX) -> BytesIO:
     """Read a file and return its contents as a ``BytesIO`` for stdin."""
+    if isinstance(path, GPX):
+        return BytesIO(path.to_string().encode())
     with open(path, "rb") as f:
         return BytesIO(f.read())
 
@@ -394,6 +396,70 @@ def test_cmd_meta(tmp_path):
     )
     assert "Updated metadata" in buf.getvalue()
     assert "Name: C" in buf.getvalue()
-    meta = GPX(out).metadata()
+    assert (meta := GPX(out).metadata())
     assert meta.author == "D"
     assert meta.email == None
+
+
+def test_cmd_tracks_list(tmp_path):
+    """Test tracks subcommand lists track info to stdout."""
+    gpx = GPX()
+    gpx.add_track((48.8, 2.2), (48.9, 2.3), name="A", description="B")
+    gpx.add_track((48.8, 2.2), (48.9, 2.3), name="C", track_type="D")
+    buf = StringIO()
+    main(["tracks", "-"], out=buf, stdin=_file_to_stdin(gpx))
+    output = buf.getvalue().split("\n")
+    assert output[0].strip() == "Track 0:"
+    assert output[1].strip() == "Name: A"
+    assert output[2].strip() == "Desc: B"
+    assert output[3].strip() == "Type:"
+    assert output[4].strip() == "Track 1:"
+    assert output[5].strip() == "Name: C"
+    assert output[6].strip() == "Desc:"
+    assert output[7].strip() == "Type: D"
+
+
+def test_cmd_tracks_set(tmp_path):
+    """Test tracks subcommand with -t and metadata flags."""
+    gpx_path = tmp_path / "input.gpx"
+    create_gpx_file(gpx_path)
+    out_path = tmp_path / "output.gpx"
+
+    buf = StringIO()
+    main(
+        [
+            "tracks",
+            str(gpx_path),
+            "-t",
+            "0",
+            "--name",
+            "New Name",
+            "--description",
+            "New desc",
+            "--type",
+            "run",
+            "-o",
+            str(out_path),
+        ],
+        out=buf,
+    )
+    assert "Updated track metadata" in buf.getvalue()
+    gpx = GPX(out_path)
+    tracks = gpx.tracks()
+    assert len(tracks) == 1
+    assert tracks[0].name == "New Name"
+    assert tracks[0].description == "New desc"
+    assert tracks[0].track_type == "run"
+
+    buf = StringIO()
+    main(
+        ["tracks", str(gpx_path), "--name=A", "--description=B", "--type=C", "-o=-"],
+        out=buf,
+    )
+    buf.seek(0)
+    gpx = GPX(buf)
+    tracks = gpx.tracks()
+    assert len(tracks) == 1
+    assert tracks[0].name == "A"
+    assert tracks[0].description == "B"
+    assert tracks[0].track_type == "C"

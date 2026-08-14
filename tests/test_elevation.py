@@ -7,7 +7,14 @@ import pytest
 from gphix.elevation import ElevationDataManager, GPXInterpolator, add_elevation_to_gpx
 from gphix.gpx import GPX
 
-from .utils import Point, create_gpx_file, create_tif_grid, create_tif_point, no_np_warn
+from .utils import (
+    Point,
+    create_gpx,
+    create_gpx_file,
+    create_tif_grid,
+    create_tif_point,
+    no_np_warn,
+)
 
 
 @no_np_warn()
@@ -86,8 +93,7 @@ def test_query_archive(fmt, tmp_path):
 @no_np_warn()
 def test_add_elevation_partial_coverage(tmp_path):
     """Test that points outside DEM coverage keep their original values."""
-    gpx = GPX()
-    gpx.add_track().add_points((48.9, 2.3), (51.5, -0.1))
+    gpx = create_gpx([Point(48.9, 2.3), Point(51.5, -0.1)])
 
     tif_path = tmp_path / "dem.tif"
     create_tif_point(tif_path, 48.9, 2.3, 130.0)
@@ -104,8 +110,8 @@ def test_add_elevation_partial_coverage(tmp_path):
 def test_add_elevation_multiple_tracks(tmp_path):
     """Test adding elevation across multiple tracks in a GPX file."""
     gpx = GPX()
-    gpx.add_track().add_points((48.85, 2.3), (48.9, 2.35))
-    gpx.add_track().add_points((51.5, -0.1), (51.55, -0.05))
+    gpx.add_track((48.85, 2.3), (48.9, 2.35))
+    gpx.add_track((51.5, -0.1), (51.55, -0.05))
 
     elevations = np.full((3, 3), 100.0, dtype=np.float32)
     tif_path = tmp_path / "dem.tif"
@@ -123,9 +129,7 @@ def test_add_elevation_multiple_tracks(tmp_path):
 def test_add_elevation_mixed_existing_and_missing(tmp_path):
     """Test overwrite with partial coverage: some points have existing elevation,
     some are missing, and some are outside DEM coverage."""
-    gpx = GPX()
-    gpx.add_track().add_points((48.9, -2.3, 50.0), (48.95, -2.35), (51.5, 0.1))
-
+    gpx = create_gpx([Point(48.9, -2.3, 50.0), Point(48.95, -2.35), Point(51.5, 0.1)])
     tif_path = tmp_path / "dem.tif"
     elevations = np.full((3, 3), 200.0, dtype=np.float32)
     create_tif_grid(tif_path, -2.2, 48.8, -2.6, 49.1, elevations)
@@ -148,9 +152,7 @@ def test_add_elevation_mixed_existing_and_missing(tmp_path):
 @no_np_warn()
 def test_add_elevation_with_stats(tmp_path):
     """Test adding elevation and verifying stats reflect the changes."""
-    gpx = GPX()
-    gpx.add_track().add_points((-48.85, 2.3), (-48.875, 2.3), (-48.9, 2.3))
-
+    gpx = create_gpx([Point(-48.85, 2.3), Point(-48.875, 2.3), Point(-48.9, 2.3)])
     elevations = np.array([[100.0, 105.0], [110.0, 115.0]], dtype=np.float32)
     tif_path = tmp_path / "dem.tif"
     create_tif_grid(tif_path, 2.2, -48.8, 2.4, -49.0, elevations)
@@ -169,8 +171,7 @@ def test_add_elevation_with_stats(tmp_path):
 
 def test_gpx_reference_provider_exact_vertex():
     """GPX reference returns elevation of an exact vertex."""
-    gpx = GPX()
-    gpx.add_track().add_points((48.8, 2.3, 100.0), (48.9, 2.3, 200.0))
+    gpx = create_gpx([Point(48.8, 2.3, 100.0), Point(48.9, 2.3, 200.0)])
     provider = GPXInterpolator([gpx], radius=50.0)
     assert provider.elevation(48.8, 2.3) == 100.0
     assert provider.elevation(48.9, 2.3) == 200.0
@@ -178,8 +179,7 @@ def test_gpx_reference_provider_exact_vertex():
 
 def test_gpx_reference_provider_perpendicular():
     """GPX reference projects onto a diagonal segment."""
-    gpx = GPX()
-    gpx.add_track().add_points((48.8, 2.3, 100.0), (48.81, 2.31, 200.0))
+    gpx = create_gpx([Point(48.8, 2.3, 100.0), Point(48.81, 2.31, 200.0)])
     provider = GPXInterpolator([gpx], radius=50.0)
     result = provider.elevation(48.805 + 0.0004, 2.305)
     assert result is not None
@@ -188,16 +188,14 @@ def test_gpx_reference_provider_perpendicular():
 
 def test_gpx_reference_provider_outside_cutoff():
     """GPX reference returns None when perpendicular distance exceeds cutoff."""
-    gpx = GPX()
-    gpx.add_track().add_points((48.8, 2.3, 100.0), (48.9, 2.3, 200.0))
+    gpx = create_gpx([Point(48.8, 2.3, 100.0), Point(48.9, 2.3, 200.0)])
     provider = GPXInterpolator([gpx], radius=50.0)
     assert provider.elevation(49.5, 2.3) is None
 
 
 def test_gpx_reference_provider_no_elevation_vertices():
     """GPX reference skips edges where either endpoint lacks elevation."""
-    gpx = GPX()
-    gpx.add_track().add_points((48.8, 2.3), (48.9, 2.3, 200.0))
+    gpx = create_gpx([Point(48.8, 2.3), Point(48.9, 2.3, 200.0)])
     provider = GPXInterpolator([gpx], radius=50.0)
     assert provider.elevation(48.8, 2.3) is None
 
@@ -205,8 +203,8 @@ def test_gpx_reference_provider_no_elevation_vertices():
 def test_gpx_reference_provider_multiple_tracks():
     """GPX reference merges multiple tracks and picks closest."""
     gpx = GPX()
-    gpx.add_track().add_points((48.8, 2.3, 100.0), (48.8, 2.4, 150.0))
-    gpx.add_track().add_points((51.5, -0.1, 50.0), (51.5, -0.2, 60.0))
+    gpx.add_track((48.8, 2.3, 100.0), (48.8, 2.4, 150.0))
+    gpx.add_track((51.5, -0.1, 50.0), (51.5, -0.2, 60.0))
     provider = GPXInterpolator([gpx], radius=50.0)
     assert provider.elevation(48.8, 2.3) == 100.0
     assert provider.elevation(51.5, -0.1) == 50.0
@@ -248,17 +246,11 @@ def test_elevation_manager_gpx_in_zip(tmp_path):
 
 def test_add_elevation_from_gpx_reference(tmp_path):
     """Test that GPX references are used for elevation assignment."""
-    gpx = GPX()
-    gpx.add_track().add_points((48.8, 2.3), (48.85, 2.35), (48.9, 2.4))
-
+    gpx = create_gpx([Point(48.8, 2.3), Point(48.85, 2.35), Point(48.9, 2.4)])
     ref_path = tmp_path / "ref.gpx"
     create_gpx_file(
         ref_path,
-        [
-            Point(48.8, 2.3, 100.0),
-            Point(48.85, 2.35, 150.0),
-            Point(48.9, 2.4, 200.0),
-        ],
+        [Point(48.8, 2.3, 100.0), Point(48.85, 2.35, 150.0), Point(48.9, 2.4, 200.0)],
     )
 
     updates = add_elevation_to_gpx(gpx, [ref_path])
@@ -272,8 +264,7 @@ def test_add_elevation_from_gpx_reference(tmp_path):
 
 def test_gpx_reference_radius_parameter(tmp_path):
     """Test that the radius parameter controls how far GPX covers."""
-    gpx = GPX()
-    gpx.add_track().add_points((48.8, 2.3, 100.0), (48.9, 2.3, 200.0))
+    gpx = create_gpx([Point(48.8, 2.3, 100.0), Point(48.9, 2.3, 200.0)])
 
     provider_large = GPXInterpolator([gpx], radius=10000.0)
     result = provider_large.elevation(48.85, 2.3)

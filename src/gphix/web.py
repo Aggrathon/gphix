@@ -303,7 +303,7 @@ def apply_fill_gaps(
 def insert_points(rows: list[dict[str, str | float]]) -> None:
     """Add all rows as a single new track."""
     if gpx := clone_next():
-        builder = gpx.add_track()
+        seg = gpx.add_track().add_segment()
         for row in rows:
             lat = float(row["lat"])
             lon = float(row["lon"])
@@ -311,7 +311,7 @@ def insert_points(rows: list[dict[str, str | float]]) -> None:
             time = row.get("time")
             time = datetime.fromisoformat(time) if time else None  # type:ignore
             ele = float(ele) if ele is not None and ele != "" else None
-            builder.add_point(lat, lon, ele, time)
+            seg.add_point(lat, lon, ele, time)
 
 
 def save_gpx() -> str | None:

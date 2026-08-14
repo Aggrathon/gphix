@@ -135,14 +135,14 @@ def test_segments_sort_by_geographic_gap(tmp_path):
     lats = [p.latitude for s in gpx.segments() if (p := s.first_point())]
     assert lats == [10.0, 30.0, 50.0]
 
-    gpx.add_track().add_points((20.0, 30.0), (25.0, 30.0))
+    gpx.add_track((20.0, 30.0), (25.0, 30.0))
     lats = [p.latitude for s in gpx.segments(True) if (p := s.first_point())]
     assert lats == [10.0, 20.0, 30.0, 50.0]
 
     gpx.add_track()
     assert len(gpx.segments()) == 4
 
-    gpx.add_track().add_points((25.0, 35.0), (30.0, 35.0))
+    gpx.add_track((25.0, 35.0), (30.0, 35.0))
     lats = [p.latitude for s in gpx.segments(True) if (p := s.first_point())]
     assert lats == [10.0, 20.0, 25.0, 30.0, 50.0]
 
@@ -159,11 +159,8 @@ def test_track_builder(tmp_path):
     base = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
 
     gpx = GPX(None)
-    gpx.add_track().add_points((1.0, 2.0), (3.0, 4.0))
-    pt = gpx.add_track().add_point(5.0, 6.0)
-    pt.elevation = 123.4
-    pt.time = base
-
+    gpx.add_track((1.0, 2.0), (3.0, 4.0))
+    gpx.add_track((5.0, 6.0, 123.4, base))
     gpx.add_waypoint(7.0, 8.0).elevation = 99.0
 
     output = tmp_path / "builder.gpx"
@@ -175,8 +172,8 @@ def test_track_builder(tmp_path):
     assert len(points) == 4
 
     assert points[1].elevation is None
-    assert points[2].elevation == pt.elevation
-    assert points[2].time == pt.time
+    assert points[2].elevation == 123.4
+    assert points[2].time == base
     assert points[3].elevation == 99.0
 
 
@@ -225,28 +222,26 @@ def test_clean():
     assert stats.tracks == 1
     assert gpx.metadata() is None
     gpx.clean(add_bounds=True)
-    meta = gpx.metadata()
+    assert (meta := gpx.metadata())
     assert meta.min_lat == -1.0
     assert meta.max_lat == 1.0
     assert meta.min_lon == 1.0
     assert meta.max_lon == 2.0
     assert meta.time is None
     time = datetime.now(UTC)
-    gpx.add_track().add_point(1.0, 3.0).time = time
+    gpx.add_track((1.0, 3.0, None, time))
     gpx.clean()
-    meta = gpx.metadata()
+    assert (meta := gpx.metadata())
     assert meta.max_lon == 3.0
     assert meta.time is None
-    gpx.add_track().add_points(
-        (1.0, 1.0), (0.9999, 1.0), (-0.1, 1.0), (0.9998, 1.0), (0.9997, 1.0)
-    )
+    gpx.add_track((1.0, 1.0), (0.9999, 1.0), (-0.1, 1.0), (0.9998, 1.0), (0.9997, 1.0))
     assert len(gpx.segments()[-1]) == 5
     gpx.clean(outliers=True, add_bounds=True)
     assert len(gpx.segments()[-1]) == 4
     assert gpx.metadata().time == time
-    trk = gpx.add_track()
+    seg = gpx.add_track().add_segment()
     for i in [-11, 202, 203, 204, 205, 406, 507, 508, 509, 510, 511, 612]:
-        trk.add_point(1.0, 1.0).time = time + timedelta(seconds=i)
+        seg.add_point(1.0, 1.0, time=time + timedelta(seconds=i))
     assert len(gpx.segments()[-1]) == 12
     gpx.clean(outliers=True, max_time=50, min_size=2)
     assert len(gpx.segments()[-1]) == 9
@@ -261,11 +256,54 @@ def test_clean_merge_tracks():
         (Point(3.0, 3.0, time=300),),
         waypoints=[Point(5.0, 5.0)],
     )
-    gpx.root.find("gpx:trk", gpx.namespaces).set("name", "first")
+    gpx.tracks()[0].name = "first"
     gpx.clean(merge_tracks=True)
     assert len(gpx.segments()) == 4
-    assert len(gpx.root.findall("gpx:trk", gpx.namespaces)) == 1
-    assert gpx.root.find("gpx:trk", gpx.namespaces).get("name") == "first"
+    assert len(gpx.tracks()) == 1
+    assert gpx.tracks()[0].name == "first"
     assert len(list(gpx.points())) == 6
-    assert gpx.waypoints().__next__() is not None
+    assert list(gpx.waypoints())
     assert [p.latitude for p in gpx.points()] == [1.0, 2.0, 2.0, 3.0, 1.0, 5.0]
+
+
+def test_track_metadata():
+    """Test GPX.add_track() accepts name, description, and track_type kwargs."""
+    gpx = GPX(None)
+    track = gpx.add_track(
+        name="Morning Run",
+        description="A sunrise jog",
+        track_type="run",
+    )
+    gpx.add_track(name="Second")
+    gpx.add_track()
+    assert track.name == "Morning Run"
+    assert track.description == "A sunrise jog"
+    assert track.track_type == "run"
+    track.name = "Test Track"
+    track.description = "A test"
+    track.track_type = "hike"
+    track = gpx.tracks()[0]
+    assert track.name == "Test Track"
+    assert track.description == "A test"
+    assert track.track_type == "hike"
+    assert gpx.tracks()[1].name == "Second"
+    assert gpx.tracks()[2].name == None
+    track.name = None
+    track.description = ""
+    track.track_type = None
+    assert track.name is None
+    assert track.description is None
+    assert track.track_type is None
+
+
+def test_gpstrack_add_segment():
+    """Test GPXTrack.add_segment() creates a trkseg and returns GPXSegment."""
+    gpx = GPX(None)
+    track = gpx.add_track()
+    track.add_segment((1.0, 2.0), (3.0, 4.0))
+    assert len(list(track.add_segment().points())) == 0
+    t2 = gpx.add_track()
+    s2 = t2.add_segment((5.0, 6.0))
+    assert len(list(s2.points())) == 1
+    assert len(gpx.tracks()) == 2
+    assert len(list(gpx.points())) == 3

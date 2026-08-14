@@ -128,9 +128,9 @@ def test_find_path_same_index(reverse: bool, single: bool):
 
 def test_find_match_different_tracks():
     """Candidates on different tracks → no match."""
-    r = GPX(None)
-    r.add_track().add_points((48.8, 2.1), (48.7, 2.2))
-    r.add_track().add_points((51.5, 0.0), (51.6, 0.0))
+    r = create_gpx(
+        (Point(48.8, 2.1), Point(48.7, 2.2)), (Point(51.5, 0.0), Point(51.6, 0.0))
+    )
     g = create_gpx([Point(48.8, 2.2)], [Point(51.5, -0.1)])
     (gap,) = find_gaps(g)
     assert ReferencePaths(r).find_path(gap) is None
