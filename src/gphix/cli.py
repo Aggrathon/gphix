@@ -8,10 +8,10 @@ from pathlib import Path
 from typing import Literal, TextIO
 
 from gphix.trim import trim
-from gphix.utils import flatten, format_distance, format_duration
+from gphix.utils import format_distance, format_duration
 
 from .elevation import add_elevation_to_gpx
-from .fill import fill_gaps, find_gaps
+from .fill import fill_gaps, find_frozen, find_gaps, fix_frozen
 from .gpx import GPX, GPXMetadata, GPXStats
 
 
@@ -118,9 +118,11 @@ def main(
     fill_parser.add_argument(
         "ref",
         type=Path,
-        help="Reference GPX file (path source for filling gaps)",
+        nargs="?",
+        default=None,
+        help="Reference GPX file (path for filling gaps)",
     )
-    _add_output_arg(fill_parser)
+    _add_output_arg(fill_parser, False)
     fill_parser.add_argument(
         "--list",
         action="store_true",
@@ -129,8 +131,8 @@ def main(
     fill_parser.add_argument(
         "--min-distance",
         type=float,
-        default=200.0,
-        help="Minimum gap distance in metres (default: 200)",
+        default=100.0,
+        help="Minimum gap distance in metres (default: 100)",
     )
     fill_parser.add_argument(
         "--min-time",
@@ -139,13 +141,30 @@ def main(
         help="Minimum gap duration in seconds (default: -1)",
     )
     fill_parser.add_argument(
-        "-g",
-        "--gap",
-        type=int,
-        nargs="+",
+        "--select",
+        "-s",
+        type=str,
         action="append",
         default=None,
-        help="Fill only specific gaps by index (repeatable)",
+        help="Fix only specific items by --list index (comma-separated, repeatable)",
+    )
+    fill_parser.add_argument(
+        "--no-frozen",
+        action="store_true",
+        default=False,
+        help="Disable frozen coordinate fix",
+    )
+    fill_parser.add_argument(
+        "--no-gaps",
+        action="store_true",
+        default=False,
+        help="Disable gap filling",
+    )
+    fill_parser.add_argument(
+        "--min-frozen",
+        type=int,
+        default=3,
+        help="Minimum number of frozen points to detect (default: 3)",
     )
 
     # --- elevation ---
@@ -270,7 +289,10 @@ def main(
             parsed.list,
             parsed.min_distance,
             parsed.min_time,
-            parsed.gap,
+            parsed.select,
+            parsed.no_frozen,
+            parsed.no_gaps,
+            parsed.min_frozen,
             out,
             stdin,
         )
@@ -461,37 +483,90 @@ def _cmd_insert(
         out.write(gpx.to_string())
 
 
+def _parse_select(raw: list[str] | None) -> list[int] | None:
+    """Parse --select argument into a flat list of indices."""
+    if raw is None:
+        return None
+    indices: list[int] = []
+    for group in raw:
+        indices.extend(int(x) for x in group.split(","))
+    return indices or None
+
+
 def _cmd_fill(
     input_file: Path,
-    ref_file: Path,
+    ref_file: Path | None,
     output: Path,
     list_gaps: bool,
     min_distance: float,
     min_time: float,
-    selected_gaps: list[int | list[int]] | None,
+    select: list[str] | None,
+    no_frozen: bool,
+    no_gaps: bool,
+    min_frozen: int,
     out: TextIO,
     stdin: BytesIO | None = None,
 ):
     """Handle the ``fill`` subcommand."""
+    if no_frozen and no_gaps:
+        return print(
+            "Cannot disable both frozen fixing and gap filling at the same time",
+            file=out,
+        )
     gpx = _load_gpx(input_file, stdin)
-    ref = _load_gpx(ref_file, stdin)
+    ref = _load_gpx(ref_file, stdin) if ref_file else None
 
     if list_gaps:
-        gaps = find_gaps(gpx, min_distance, min_time)
-        for i, gap in enumerate(gaps):
-            duration = f"{gap.duration:.0f}s" if gap.duration is not None else "N/A"
+
+        def print_gap(i: int, gap, num: int | None = None):
             print(
-                f"{i}  {gap.start.lat:.6f},{gap.start.lon:.6f} → "
-                f"{gap.end.lat:.6f},{gap.end.lon:.6f}  "
-                f"dist={gap.distance:.0f}m  duration={duration}",
+                f"{i}  {gap.start.lat:.5f},{gap.start.lon:.5f} →",
+                f"{gap.end.lat:.5f},{gap.end.lon:.5f} ",
+                f"dist={format_distance(gap.distance)} ",
+                f"duration={format_duration(gap.duration) if gap.duration is not None else 'N/A'} ",
+                f"length={num}" if num else "",
                 file=out,
             )
+
+        if no_gaps:
+            gaps = []
+        else:
+            gaps = find_gaps(gpx, min_distance, min_time)
+            print("Gaps:" if gaps else "No gaps", file=out)
+            for i, gap in enumerate(gaps):
+                print_gap(i, gap)
+        if not no_frozen:
+            frozen = find_frozen(gpx, min_distance, min_time, min_frozen)
+            print("Frozen sections:" if frozen else "No frozen sections", file=out)
+            for i, sec in enumerate(frozen):
+                print_gap(i + len(gaps), sec.gap, sec.end_idx - sec.start_idx)
         return
 
-    filled = fill_gaps(gpx, ref, min_distance, min_time, flatten(selected_gaps))
+    selected = _parse_select(select)
+    gaps = sections = None
+    if selected is not None:
+        if no_gaps:
+            sections = selected
+        elif no_frozen:
+            gaps = selected
+        else:
+            ngaps = len(find_gaps(gpx, min_distance, min_time))
+            gaps = [s for s in selected if s < ngaps]
+            sections = [s - ngaps for s in selected if s >= ngaps]
+    ngap = nfrozen = 0
+    if not no_gaps:
+        ngap = fill_gaps(gpx, ref, min_distance, min_time, gaps)
+    if not no_frozen:
+        nfrozen = fix_frozen(gpx, ref, min_distance, min_time, min_frozen, sections)
+
     if output != Path("-"):
         gpx.write(output)
-        print(f"Filled {filled} gap(s) from {ref_file} → {output}", file=out)
+        upd = []
+        if not no_gaps:
+            upd.append(f"{ngap} gap(s)")
+        if not no_frozen:
+            upd.append(f"{nfrozen} frozen section(s)")
+        print(f"Fixed {' and '.join(upd)} from {ref_file} → {output}", file=out)
         _print_stats(gpx, out)
     else:
         out.write(gpx.to_string())

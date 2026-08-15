@@ -14,11 +14,12 @@ from gphix.fill import (
     ReferencePaths,
     RefPoint,
     fill_gaps,
+    find_frozen,
     find_gaps,
+    fix_frozen,
     interpolate_time_fill,
     interpolate_time_linear,
 )
-from gphix.gpx import GPX
 
 from .utils import Point, create_gpx
 
@@ -48,7 +49,7 @@ def test_find_gaps_min_time():
     """Time threshold filtering."""
     gpx = create_gpx([Point(48.85, 2.29, time=0)], [Point(40.71, -74.06, time=0)])
     assert len(find_gaps(gpx, min_distance=200.0)) == 1
-    assert len(find_gaps(gpx, min_distance=200.0, min_time=60.0)) == 0
+    assert len(find_gaps(gpx, min_distance=200.0, min_duration=60.0)) == 0
 
 
 def test_find_gaps_multiple_gaps():
@@ -243,3 +244,125 @@ def test_fill_gaps_partial():
     assert len(find_gaps(gpx, min_distance=200.0)) == 2
     assert fill_gaps(gpx, r, selected_gaps=[0]) == 1
     assert len(find_gaps(gpx, min_distance=200.0)) == 1
+
+
+def _create_frozen(lat: float, lon: float, offset: float = 0.1) -> list[Point]:
+    off = [Point(lat + offset, lon + offset, time=50)]
+    return [Point(lat, lon, time=i * 10) for i in range(5)] + off
+
+
+def test_find_frozen_basic():
+    """Single frozen zone detected."""
+    gpx = create_gpx(_create_frozen(45.3, -23.2, 0.001))
+    (zone,) = find_frozen(gpx, min_duration=30.0, min_distance=50.0, min_frozen=3)
+    assert zone.segment_index == 0
+    assert zone.start_idx == 0
+    assert zone.end_idx == 5
+    assert zone.gap.distance > 50
+    assert zone.gap.duration is not None and zone.gap.duration >= 30
+    assert find_frozen(gpx, min_duration=30.0, min_distance=50.0, min_frozen=5) == []
+    assert find_frozen(gpx, min_duration=300.0, min_distance=50.0, min_frozen=3) == []
+    assert find_frozen(gpx, min_duration=30.0, min_distance=500.0, min_frozen=3) == []
+
+
+def test_find_frozen_no_freeze():
+    """All points moving -> no frozen zones."""
+    gpx = create_gpx([Point(41.0, 29.0 + i * 0.1, time=i * 10) for i in range(10)])
+    assert find_frozen(gpx) == []
+
+
+def test_find_frozen_multiple_segments():
+    """Zones in multiple segments."""
+    gpx = create_gpx(_create_frozen(-54.4, 44.4), _create_frozen(45.5, -55.5))
+    zones = find_frozen(gpx)
+    assert len(zones) == 2
+    assert zones[0].segment_index == 0
+    assert zones[1].segment_index == 1
+    assert zones[0].gap.distance > 50
+    assert zones[1].gap.distance > 50
+
+
+def test_find_frozen_trailing_freeze():
+    """Trailing frozen run at end of segment -> not emitted."""
+    gpx = create_gpx(list(reversed(_create_frozen(4.2, 2.4))))
+    assert find_frozen(gpx) == []
+
+
+def test_find_frozen_multiple_zones():
+    """Two separate frozen zones in one segment."""
+    gpx = create_gpx(_create_frozen(-3.2, 7.4) + _create_frozen(3.1, -7.5))
+    zones = find_frozen(gpx)
+    assert len(zones) == 2
+    assert zones[0].start_idx == 0
+    assert zones[0].end_idx == 5
+    assert zones[1].start_idx == 6
+    assert zones[1].end_idx == 11
+    assert zones[0].gap.distance > 50
+    assert zones[1].gap.distance > 50
+
+
+def test_find_frozen_no_timestamps():
+    """No time data -> duration=None passes."""
+    gpx = create_gpx(
+        [
+            Point(41.2, 29.4),
+            Point(41.2, 29.4),
+            Point(41.2, 29.4),
+            Point(41.2, 29.4),
+            Point(41.3, 29.5),
+        ]
+    )
+    zones = find_frozen(gpx)
+    assert len(zones) == 1
+    assert zones[0].gap.duration is None
+
+
+def test_fix_frozen_basic():
+    """Single zone fixed with reference."""
+    gpx = create_gpx(_create_frozen(43.2, 22.4))
+    original_times = [p.time for p in gpx.points()]
+    r = create_gpx(
+        [Point(42.2, 22.4), Point(42.21, 22.42), Point(42.25, 22.46), Point(42.3, 22.5)]
+    )
+    fixed = fix_frozen(gpx, r)
+    assert fixed == 1
+
+    seg = gpx.segments(sorted=False)[0]
+    pts = list(seg.points())
+    assert pts[0].latitude == pytest.approx(43.2)
+    assert pts[-1].latitude == pytest.approx(43.3)
+    for i in range(1, 5):
+        assert pts[i - 1].latitude < pts[i].latitude
+        assert pts[i - 1].longitude < pts[i].longitude
+    for j, pt in enumerate(pts):
+        assert pt.time == original_times[j]
+    assert len(list(gpx.segments())) == 1
+    assert len(list(gpx.points())) == len(original_times)
+    assert find_frozen(gpx) == []
+
+
+def test_fix_frozen_multiple_zones():
+    """Multiple zones both fixed."""
+    gpx = create_gpx(_create_frozen(41.2, 29.4) + _create_frozen(41.4, 29.6))
+    r = create_gpx([Point(41.2 + i * 0.01, 29.4 + i * 0.01, i) for i in range(20)])
+    fixed = fix_frozen(gpx, r)
+    assert fixed == 2
+    assert find_frozen(gpx) == []
+    for p1, p2 in itertools.pairwise(gpx.points()):
+        e1, e2 = p1.elevation, p2.elevation
+        assert e1 is None or e2 is None or e1 < e2
+
+
+@pytest.mark.parametrize("ref", [None, [Point(-33.8, 151.2), Point(-33.9, 151.1)]])
+def test_fix_frozen_linear_fallback(ref):
+    """No reference or no match -> linear interpolation."""
+    gpx = create_gpx(_create_frozen(67.3, 123.3))
+    r = create_gpx(ref) if ref is not None else None
+    fixed = fix_frozen(gpx, r)
+    assert fixed == 1
+    seg = gpx.segments(sorted=False)[0]
+    pts = list(seg.points())
+    for i in range(1, 5):
+        assert pts[i - 1].latitude < pts[i].latitude
+        assert pts[i - 1].longitude < pts[i].longitude
+    assert find_frozen(gpx) == []

@@ -135,19 +135,6 @@ def last[T](iterator: Iterator[T] | Iterable[T]) -> None | T:
     return item
 
 
-def flatten[T](nested: list[T | list[T]] | None) -> list[T] | None:
-    """Flatten a list potentially containing lists."""
-    if nested is None:
-        return None
-    flat = []
-    for i in nested:
-        if isinstance(i, list):
-            flat.extend(i)
-        else:
-            flat.append(i)
-    return flat
-
-
 def format_distance(meters: float) -> str:
     if meters >= 1000:
         return f"{meters / 1000:.2f} km"

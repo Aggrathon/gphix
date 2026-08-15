@@ -10,6 +10,14 @@ from gphix.utils import LocalKDTree, cum_distance, distance, project_to_edge
 
 
 @dataclass(slots=True)
+class FrozenSection:
+    segment_index: int  # 0-based index into gpx.segments()
+    start_idx: int  # first point in the frozen sequence
+    end_idx: int  # first point after the frozen sequence
+    gap: Gap
+
+
+@dataclass(slots=True)
 class RefPoint:
     segment: int
     lat: float
@@ -38,8 +46,47 @@ class Gap:
     distance: float
     duration: float | None = None
 
+    @classmethod
+    def between(cls, before: GPXPoint, after: GPXPoint) -> Gap:
+        start = RefPoint.from_gpx_point(before)
+        end = RefPoint.from_gpx_point(after)
+        dur = None
+        if start.time is not None and end.time is not None:
+            dur = (end.time - start.time).total_seconds()
+        return Gap(start, end, start.distance(end), dur)
 
-def find_gaps(gpx: GPX, min_distance: float = 200.0, min_time: float = -1) -> list[Gap]:
+
+def find_frozen(
+    gpx: GPX,
+    min_distance: float = 50.0,
+    min_duration: float = 30.0,
+    min_frozen: int = 3,
+) -> list[FrozenSection]:
+    """Find frozen sections in every segment."""
+    sections: list[FrozenSection] = []
+    for si, seg in enumerate(gpx.segments()):
+        points = list(seg.points())
+        frozen_start = 0
+        for i in range(len(points) - 1):
+            if not (
+                points[i].latitude == points[i + 1].latitude
+                and points[i].longitude == points[i + 1].longitude
+            ):
+                frozen_end = i + 1
+                if frozen_end - frozen_start > min_frozen:
+                    gap = Gap.between(points[frozen_start], points[frozen_end])
+                    if gap.distance < min_distance:
+                        continue
+                    if gap.duration is not None and gap.duration < min_duration:
+                        continue
+                    sections.append(FrozenSection(si, frozen_start, frozen_end, gap))
+                frozen_start = frozen_end
+    return sections
+
+
+def find_gaps(
+    gpx: GPX, min_distance: float = 200.0, min_duration: float = -1
+) -> list[Gap]:
     """Find gaps between consecutive segments."""
     gaps = []
     for seg_a, seg_b in pairwise(gpx.segments(True)):
@@ -47,30 +94,29 @@ def find_gaps(gpx: GPX, min_distance: float = 200.0, min_time: float = -1) -> li
         next = seg_b.first_point()
         if prev is None or next is None:
             continue
-        start = RefPoint.from_gpx_point(prev)
-        end = RefPoint.from_gpx_point(next)
-        dist = start.distance(end)
-        if dist < min_distance:
+        gap = Gap.between(prev, next)
+        if gap.distance < min_distance:
             continue
-        gap_time = None
-        if start.time is not None and end.time is not None:
-            gap_time = (end.time - start.time).total_seconds()
-            if min_time is not None and gap_time < min_time:
-                continue
-        gaps.append(Gap(start=start, end=end, distance=dist, duration=gap_time))
+        if gap.duration is not None and gap.duration < min_duration:
+            continue
+        gaps.append(gap)
     return gaps
 
 
 class ReferencePaths:
     """KDTree index over a reference GPX for gap boundary matching."""
 
-    def __init__(self, ref: GPX, gap_dist_mult: float = 0.5):
-        self._ref_pts = [
-            RefPoint.from_gpx_point(pt, i)
-            for i, seg in enumerate(ref.segments(sorted=False, routes=True))
-            for pt in seg.points()
-        ]
-        self._tree = LocalKDTree((pt.lat, pt.lon) for pt in self._ref_pts)
+    def __init__(self, ref: GPX | None, gap_dist_mult: float = 0.5):
+        if ref is None:
+            self._ref_pts = []
+            self._tree = None
+        else:
+            self._ref_pts = [
+                RefPoint.from_gpx_point(pt, i)
+                for i, seg in enumerate(ref.segments(sorted=False, routes=True))
+                for pt in seg.points()
+            ]
+            self._tree = LocalKDTree((pt.lat, pt.lon) for pt in self._ref_pts)
         self.mult = gap_dist_mult
 
     def _iter_segment(self, index: int) -> Iterator[int]:
@@ -112,6 +158,8 @@ class ReferencePaths:
 
     def find_path(self, gap: Gap) -> list[RefPoint]:
         """Find matching path in the reference GPX."""
+        if self._tree is None:
+            return [gap.start, gap.end]
         start = self._tree.query(gap.start.lat, gap.start.lon)
         end = self._tree.query(gap.end.lat, gap.end.lon)
         proj_start, dir_start = self._project_nearest(start, gap.start)
@@ -201,19 +249,62 @@ def fill_gap(gpx: GPX, matcher: ReferencePaths, gap: Gap) -> bool:
 
 def fill_gaps(
     gpx: GPX,
-    ref: GPX,
+    ref: ReferencePaths | GPX | None,
     min_distance: float = 200.0,
-    min_time: float = -1.0,
+    min_duration: float = -1.0,
     selected_gaps: list[int] | None = None,
 ) -> int:
     """Find all gaps and fill the selected ones. Returns the number of gaps filled."""
-    gaps = find_gaps(gpx, min_distance, min_time)
+    gaps = find_gaps(gpx, min_distance, min_duration)
     if selected_gaps is not None:
         gaps = [gaps[i] for i in selected_gaps]
     filled = 0
     if gaps:
-        matcher = ReferencePaths(ref)
-    for gap in gaps:
-        if fill_gap(gpx, matcher, gap):
-            filled += 1
+        matcher = ref if isinstance(ref, ReferencePaths) else ReferencePaths(ref)
+        for gap in gaps:
+            if fill_gap(gpx, matcher, gap):
+                filled += 1
     return filled
+
+
+def fix_frozen(
+    gpx: GPX,
+    ref: ReferencePaths | GPX | None = None,
+    min_distance: float = 50.0,
+    min_duration: float = 30.0,
+    min_frozen: int = 3,
+    selected_sections: list[int] | None = None,
+) -> int:
+    """Fix frozen sections by interpolating coordinates. Returns the count fixed."""
+    sections = find_frozen(gpx, min_distance, min_duration, min_frozen)
+    if selected_sections is not None:
+        sections = [sections[i] for i in selected_sections]
+    if sections:
+        matcher = ref if isinstance(ref, ReferencePaths) else ReferencePaths(ref)
+        segments = gpx.segments(sorted=False)
+        for sec in sections:
+            seg = segments[sec.segment_index]
+            path = matcher.find_path(sec.gap)
+            _interpolate_path(list(seg.points())[sec.start_idx : sec.end_idx + 1], path)
+    return len(sections)
+
+
+def _interpolate_path(points: list[GPXPoint], path: list[RefPoint]):
+    """Interpolate coordinates along a path."""
+    dists = list(cum_distance([(p.lat, p.lon, p.ele) for p in path]))
+    total_dist = dists[-1] if dists else 1.0
+    m = len(points)
+    idx = 0
+    for j in range(1, m - 1):
+        target_dist = j / (m - 1) * total_dist
+        while dists[idx + 1] < target_dist:
+            idx += 1
+        seg_dist = dists[idx + 1] - dists[idx]
+        seg_t = (target_dist - dists[idx]) / seg_dist if seg_dist > 0 else 0
+        p1, p2 = path[idx], path[idx + 1]
+        points[j].latitude = p1.lat + seg_t * (p2.lat - p1.lat)
+        points[j].longitude = p1.lon + seg_t * (p2.lon - p1.lon)
+        if p1.ele is not None and p2.ele is not None:
+            points[j].elevation = p1.ele + seg_t * (p2.ele - p1.ele)
+        else:
+            points[j].elevation = None

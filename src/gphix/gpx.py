@@ -219,8 +219,12 @@ class GPXPoint:
         el = self.element.find(f"gpx:{tag}", self.namespaces)
         return el.text if el is not None else None
 
-    def _set(self, tag: str, text: str) -> None:
+    def _set(self, tag: str, text: str | None) -> None:
         el = self.element.find(f"gpx:{tag}", self.namespaces)
+        if text is None:
+            if el is not None:
+                self.element.remove(el)
+            return
         if el is None:
             el = ET.SubElement(self.element, f"{{{self.uri}}}{tag}")
         el.text = text
@@ -229,9 +233,17 @@ class GPXPoint:
     def latitude(self) -> float:
         return float(self.element.get("lat", ""))
 
+    @latitude.setter
+    def latitude(self, value: float) -> None:
+        self.element.set("lat", f"{value:.6g}")
+
     @property
     def longitude(self) -> float:
         return float(self.element.get("lon", ""))
+
+    @longitude.setter
+    def longitude(self, value: float) -> None:
+        self.element.set("lon", f"{value:.6g}")
 
     @property
     def elevation(self) -> float | None:
@@ -239,8 +251,8 @@ class GPXPoint:
         return float(ele) if ele else None
 
     @elevation.setter
-    def elevation(self, value: float) -> None:
-        self._set("ele", f"{value:.5g}")
+    def elevation(self, value: float | None) -> None:
+        self._set("ele", f"{value:.5g}" if value is not None else None)
 
     @property
     def time(self) -> datetime | None:

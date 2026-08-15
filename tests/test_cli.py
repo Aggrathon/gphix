@@ -299,31 +299,30 @@ def test_cmd_fill_list(tmp_path):
     input_path = tmp_path / "input.gpx"
     create_gpx_file(
         input_path,
-        [Point(48.8, 2.2, time=0)],
+        [Point(48.8, 2.2, time=0), Point(48.8, 2.2, time=1), Point(48.9, 2.2, time=32)],
         [Point(51.5, -0.1, time=3600)],
         [Point(40.7, -74.0, time=7200)],
     )
-    ref_path = tmp_path / "ref.gpx"
-    create_gpx_file(ref_path, [Point(48.8, 2.2), Point(51.5, -0.1), Point(40.7, -74.0)])
 
     buf = StringIO()
-    main(["fill", str(input_path), str(ref_path), "--list"], out=buf)
+    main(["fill", str(input_path), "--list", "--min-frozen=1"], out=buf)
     output = buf.getvalue()
+    print(output)
 
     assert "dist=" in output
     assert "duration=" in output
     assert "→" in output
     gap_lines = [l for l in output.strip().split("\n") if l]
-    assert len(gap_lines) == 2
+    assert len(gap_lines) == 5
 
 
 def test_cmd_fill_selective(tmp_path):
-    """Test fill with -g to fill specific gaps."""
+    """Test fill with --select to fill specific items."""
     gpx_path = tmp_path / "input.gpx"
     create_gpx_file(
         gpx_path,
         *[
-            [Point(51.5, -0.1, time=i)] if i % 2 == 0 else [Point(40.7, -74.0, time=i)]
+            [Point(51.5, -0.1, time=i)] if i % 2 else [Point(40.7, -74.0, time=i)]
             for i in range(7)
         ],
     )
@@ -336,11 +335,11 @@ def test_cmd_fill_selective(tmp_path):
 
     buf = StringIO()
     main(
-        ["fill", "-", str(ref_path), "-o", str(out_path), "-g", "1", "-g", "2", "3"],
+        ["fill", "-", str(ref_path), "-o", str(out_path), "-s=2", "--select", "3,4"],
         out=buf,
         stdin=_file_to_stdin(gpx_path),
     )
-    assert "Filled 3 gap(s)" in buf.getvalue()
+    assert "3 gap(s)" in buf.getvalue()
 
 
 def test_cmd_clean(tmp_path):
