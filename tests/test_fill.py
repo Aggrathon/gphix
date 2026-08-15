@@ -97,8 +97,8 @@ def test_find_path(start_dir: int, end_dir: int, reverse: bool):
     length = 3 + int(start_dir < 0) + int(end_dir > 0)
     path = matcher.find_path(gap)
     assert path is not None
-    assert len(path) == length
-    lats = [p.lat for p in path]
+    assert len(path) == length + 2
+    lats = [p.lat for p in path[1:-1]]
     assert lats == sorted(lats)
 
 
@@ -119,10 +119,10 @@ def test_find_path_same_index(reverse: bool, single: bool):
         gap = Gap(RefPoint(0, 9.5, 0.0), RefPoint(0, 10.0, 0.5), 1e6)
     path = matcher.find_path(gap)
     assert path is not None
-    assert len(path) == (1 if single else 3)
+    assert len(path) == (3 if single else 5)
     assert path[len(path) // 2].lat == 10.0
     assert path[len(path) // 2].lon == 0.0
-    lats = [p.lat for p in path]
+    lats = [p.lat for p in path[1:-1]]
     assert lats == sorted(lats)
 
 
@@ -133,7 +133,9 @@ def test_find_match_different_tracks():
     )
     g = create_gpx([Point(48.8, 2.2)], [Point(51.5, -0.1)])
     (gap,) = find_gaps(g)
-    assert ReferencePaths(r).find_path(gap) is None
+    assert len(ReferencePaths(r, 0.5).find_path(gap)) == 2
+    assert len(ReferencePaths(r, 1.0).find_path(gap)) == 2
+    assert len(ReferencePaths(r, 2.0).find_path(gap)) == 5
 
 
 def test_find_path_distance_rejection():
@@ -142,7 +144,7 @@ def test_find_path_distance_rejection():
     matcher = ReferencePaths(r)
     # Gap endpoints are far from any ref points
     gap = Gap(RefPoint(-1, 0.0, 0.0), RefPoint(-1, 1.0, 1.0), 100.0)
-    assert matcher.find_path(gap) is None
+    assert len(matcher.find_path(gap)) == 2
 
 
 @pytest.mark.parametrize("second", [False, True], ids=("first", "second"))
@@ -157,7 +159,7 @@ def test_find_path_multi_segment(second: bool):
     gap = Gap(RefPoint(-1, 47.2, 2.1 + off), RefPoint(-1, 49.3, 2.3 + off), 1e6)
     path = matcher.find_path(gap)
     assert path is not None
-    assert all(p.segment == int(second) for p in path)
+    assert all(p.segment == int(second) for p in path[1:-1])
 
 
 def test_interpolate_linear():
