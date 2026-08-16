@@ -81,7 +81,7 @@
             <button role="tab" aria-selected="false" id="tab-elevation" data-tab="elevation" type="button">
                 Elevation
             </button>
-            <button role="tab" aria-selected="false" id="tab-gaps" data-tab="gaps" type="button">Gaps</button>
+            <button role="tab" aria-selected="false" id="tab-fix" data-tab="fix" type="button">Fix</button>
             <div class="tab-actions">
                 <button class="action secondary" id="btn-undo" type="button">Undo</button>
                 <button class="action" id="btn-save" type="button">Save</button>
@@ -200,34 +200,47 @@
                 </div>
             </div>
 
-            <div class="tab-content" data-tab="gaps" role="tabpanel" aria-labelledby="tab-gaps" hidden>
+            <div class="tab-content" data-tab="fix" role="tabpanel" aria-labelledby="tab-fix" hidden>
                 <div class="row">
                     <div class="col">
                         <fieldset>
-                            <legend>Fill Gaps Between Segments</legend>
+                            <legend>Fill Gaps Between Segments and Fix Frozen GPS Coordinates</legend>
                             <div class="field">
-                                <label for="gaps-ref">Reference Track</label>
-                                <input type="file" id="gaps-ref" accept=".gpx" />
+                                <label for="fix-ref">Reference Track</label>
+                                <input type="file" id="fix-ref" accept=".gpx" />
+                                <button class="action secondary" id="fix-clear" type="button">Clear</button>
                             </div>
+                            <label class="field" for="fix-gaps">
+                                <span class="label">Fill Gaps</span>
+                                <span><input type="checkbox" id="fix-gaps" checked /></span>
+                            </label>
+                            <label class="field" for="fix-frozen">
+                                <span class="label">Fill Frozen</span>
+                                <span><input type="checkbox" id="fix-frozen" checked /></span>
+                            </label>
                             <div class="field">
-                                <label for="gaps-min-dist">Min gap distance</label>
-                                <input type="number" id="gaps-min-dist" class="small" value="200" />
+                                <label for="fix-min-dist">Min distance</label>
+                                <input type="number" id="fix-min-dist" class="small" value="100" />
                                 <span>meters</span>
                             </div>
                             <div class="field">
-                                <label for="gaps-min-time">Min gap duration</label>
-                                <input type="number" id="gaps-min-time" class="small" value="-1" />
+                                <label for="fix-min-time">Min duration</label>
+                                <input type="number" id="fix-min-time" class="small" value="30" />
                                 <span>seconds</span>
+                            </div>
+                            <div class="field">
+                                <label for="fix-min-num">Min points</label>
+                                <input type="number" id="fix-min-num" class="small" value="3" />
                             </div>
                         </fieldset>
                         <div class="row">
-                            <button class="action" id="gaps-find" disabled type="button">Find Gaps</button>
-                            <button class="action" id="gaps-apply" disabled type="button">Fill Gaps</button>
+                            <button class="action" id="fix-find" disabled type="button">Find Issues</button>
+                            <button class="action" id="fix-apply" disabled type="button">Fix Issues</button>
                         </div>
                     </div>
                     <div class="col file-list">
-                        <h3>Detected Gaps</h3>
-                        <ul id="gaps-list"></ul>
+                        <h3>Detected Issues</h3>
+                        <ul id="fix-list"></ul>
                     </div>
                 </div>
             </div>

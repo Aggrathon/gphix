@@ -11,7 +11,7 @@ from gphix.trim import trim
 from gphix.utils import format_distance, format_duration
 
 from .elevation import add_elevation_to_gpx
-from .fill import fill_gaps, find_frozen, find_gaps, fix_frozen
+from .fix import ReferencePaths, fill_gaps, find_frozen, find_gaps, fix_frozen
 from .gpx import GPX, GPXMetadata, GPXStats
 
 
@@ -110,61 +110,62 @@ def main(
         help="Points as comma-separated values: 'lat,lon' or 'lat,lon,ele' or 'lat,lon,ele,time'",
     )
 
-    # --- fill ---
-    fill_parser = subparsers.add_parser(
-        "fill", help="Fill gaps between segments using a reference GPX"
+    # --- fix ---
+    fix_parser = subparsers.add_parser(
+        "fix",
+        help="Fix GPS tracks by filling in gaps between segments and fixing frozen coordinates (lost signal)",
     )
-    _add_input_arg(fill_parser)
-    fill_parser.add_argument(
+    _add_input_arg(fix_parser)
+    fix_parser.add_argument(
         "ref",
         type=Path,
         nargs="?",
         default=None,
-        help="Reference GPX file (path for filling gaps)",
+        help="Reference GPX file (instead of a linear interpolation use this path for filling gaps)",
     )
-    _add_output_arg(fill_parser, False)
-    fill_parser.add_argument(
+    _add_output_arg(fix_parser, False)
+    fix_parser.add_argument(
         "--list",
         action="store_true",
-        help="List gaps and exit without modifying (outputs JSON)",
+        help="List gaps and frozen section without modifying ",
     )
-    fill_parser.add_argument(
+    fix_parser.add_argument(
         "--min-distance",
         type=float,
         default=100.0,
-        help="Minimum gap distance in metres (default: 100)",
+        help="Minimum distance in metres to detect (default: 100)",
     )
-    fill_parser.add_argument(
+    fix_parser.add_argument(
         "--min-time",
         type=float,
         default=-1.0,
-        help="Minimum gap duration in seconds (default: -1)",
+        help="Minimum duration in seconds to detect (default: -1)",
     )
-    fill_parser.add_argument(
+    fix_parser.add_argument(
+        "--min-frozen",
+        type=int,
+        default=3,
+        help="Minimum number of frozen points to detect (default: 3)",
+    )
+    fix_parser.add_argument(
         "--select",
         "-s",
         type=str,
         action="append",
         default=None,
-        help="Fix only specific items by --list index (comma-separated, repeatable)",
+        help='Fix only specific items by --list index (e.g. "-s 2 -s 3,5-8,11" selects [2,3,5,6,7,8,11])',
     )
-    fill_parser.add_argument(
+    fix_parser.add_argument(
         "--no-frozen",
         action="store_true",
         default=False,
         help="Disable frozen coordinate fix",
     )
-    fill_parser.add_argument(
+    fix_parser.add_argument(
         "--no-gaps",
         action="store_true",
         default=False,
         help="Disable gap filling",
-    )
-    fill_parser.add_argument(
-        "--min-frozen",
-        type=int,
-        default=3,
-        help="Minimum number of frozen points to detect (default: 3)",
     )
 
     # --- elevation ---
@@ -281,8 +282,8 @@ def main(
             out,
             stdin,
         )
-    elif parsed.command == "fill":
-        _cmd_fill(
+    elif parsed.command == "fix":
+        _cmd_fix(
             parsed.input,
             parsed.ref,
             parsed.output,
@@ -489,11 +490,16 @@ def _parse_select(raw: list[str] | None) -> list[int] | None:
         return None
     indices: list[int] = []
     for group in raw:
-        indices.extend(int(x) for x in group.split(","))
-    return indices or None
+        for x in group.split(","):
+            if "-" in x:
+                a, b = x.split("-")
+                indices.extend(range(int(a), int(b) + 1))
+            else:
+                indices.append(int(x))
+    return indices
 
 
-def _cmd_fill(
+def _cmd_fix(
     input_file: Path,
     ref_file: Path | None,
     output: Path,
@@ -514,7 +520,6 @@ def _cmd_fill(
             file=out,
         )
     gpx = _load_gpx(input_file, stdin)
-    ref = _load_gpx(ref_file, stdin) if ref_file else None
 
     if list_gaps:
 
@@ -542,6 +547,7 @@ def _cmd_fill(
                 print_gap(i + len(gaps), sec.gap, sec.end_idx - sec.start_idx)
         return
 
+    ref = ReferencePaths(_load_gpx(ref_file, stdin) if ref_file else None)
     selected = _parse_select(select)
     gaps = sections = None
     if selected is not None:

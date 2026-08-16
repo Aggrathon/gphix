@@ -1,12 +1,13 @@
 """Helper functions for the Pyodide powered Web UI."""
 
+import itertools
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 from gphix.elevation import add_elevation_to_gpx
-from gphix.fill import fill_gaps, find_gaps
+from gphix.fix import ReferencePaths, fill_gaps, find_frozen, find_gaps, fix_frozen
 from gphix.gpx import GPX, GPXMetadata
 from gphix.trim import trim
 from gphix.utils import (
@@ -283,8 +284,12 @@ def apply_elevation(paths: list[str], radius: float = 50.0, overwrite: bool = Fa
         add_elevation_to_gpx(gpx, paths, overwrite=overwrite, radius=radius)
 
 
-def get_gaps(
-    min_distance: float = 200.0, min_time: float = -1.0
+def find_issues(
+    gaps: bool,
+    frozen: bool,
+    distance: float = 100.0,
+    duration: float = 30.0,
+    points: int = 3,
 ) -> list[dict[str, str | float]]:
     if current is None:
         return []
@@ -302,19 +307,36 @@ def get_gaps(
             if g.end.time
             else "",
         }
-        for g in find_gaps(current.gpx, min_distance, min_time)
+        for g in itertools.chain(
+            find_gaps(current.gpx, distance, duration) if gaps else (),
+            (f.gap for f in find_frozen(current.gpx, distance, duration, points))
+            if frozen
+            else (),
+        )
     ]
 
 
-def apply_fill_gaps(
-    ref_path: str,
-    min_distance: float = 200.0,
-    min_time: float = -1.0,
-    selected_gaps: list[int] | None = None,
+def apply_fix(
+    ref_path: str | None = None,
+    gaps: bool = True,
+    frozen: bool = True,
+    distance: float = 100.0,
+    duration: float = 30.0,
+    points: int = 3,
+    selected: list[int] | None = None,
 ):
     if gpx := clone_next():
-        ref = GPX(ref_path)
-        return fill_gaps(gpx, ref, min_distance, min_time, selected_gaps)
+        ref = ReferencePaths(GPX(ref_path) if ref_path else None)
+        if gaps and frozen and selected:
+            ngaps = len(find_gaps(gpx, distance, duration))
+            gsel = [s for s in selected if s < ngaps]
+            fsel = [s - ngaps for s in selected if s >= ngaps]
+        else:
+            gsel = fsel = selected
+        if gaps:
+            fill_gaps(gpx, ref, distance, duration, gsel)
+        if frozen:
+            fix_frozen(gpx, ref, distance, duration, points, fsel)
 
 
 def insert_points(rows: list[dict[str, str | float]]) -> None:

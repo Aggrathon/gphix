@@ -341,11 +341,11 @@ h3 {
     font-family: monospace;
 }
 
-#gaps-list li {
+#fix-list li {
     padding: var(--gap-sm) 0;
 }
 
-#gaps-list li label {
+#fix-list li label {
     cursor: pointer;
 }
 

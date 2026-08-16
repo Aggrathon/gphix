@@ -81,7 +81,7 @@ async function setupPyodide() {
       "web.py",
       "trim.py",
       "elevation.py",
-      "fill.py",
+      "fix.py",
     ]) {
       const resp = await fetch("src/gphix/" + f);
       py.FS.writeFile("/gphix/" + f, await resp.text());
@@ -577,7 +577,8 @@ function setupTrackMetadata() {
       description: $(`#track-${i}-description`).value,
       type: $(`#track-${i}-type`).value,
     }));
-    $("#track-cards").innerHTML = '<li class="muted field">Updating tracks</li>';
+    $("#track-cards").innerHTML =
+      '<li class="muted field">Updating tracks</li>';
     await pyodide.runPythonAsync(`set_track_metadata(${pyodide.toPy(tracks)})`);
     emit("state_changed", true);
   });
@@ -738,72 +739,64 @@ function setupInsert() {
   });
 }
 
-// ── Gaps ──────────────────────────────────────────────────────────────
-let gapList = [];
+// ── Fix ──────────────────────────────────────────────────────────────
+let fixList = [];
 
-function setupGaps() {
+function setupFix() {
   on("state_changed", (hasGpx) => {
-    $("#gaps-find").disabled = !hasGpx;
-    $("#gaps-apply").disabled = true;
-    const hasList = gapList.length > 0;
-    gapList = [];
-    renderGapList();
-    if (hasList) renderGapPreview();
+    $("#fix-find").disabled = !hasGpx;
+    clearFixList();
   });
 
-  $("#gaps-find").addEventListener("click", async () => {
-    if (!pyodide) return;
-    const minDist = parseFloat($("#gaps-min-dist").value);
-    const minTime = parseFloat($("#gaps-min-time").value);
-    showLoading("Finding gaps…");
+  $("#fix-clear").addEventListener("click", () => ($("#fix-ref").value = ""));
+  for (const el of document.querySelectorAll(
+    '.tab-content[data-tab="fix"] input',
+  ))
+    el.addEventListener("change", clearFixList);
+
+  $("#fix-find").addEventListener("click", async () => {
+    showLoading("Finding issues…");
     try {
-      gapList = await pyodide.runPythonAsync(
-        `to_js(get_gaps(min_distance=${minDist}, min_time=${minTime}))`,
+      fixList = await pyodide.runPythonAsync(
+        `to_js(find_issues(**${pyodide.toPy(getFixConfig())}))`,
       );
-      renderGapList(true);
-      renderGapPreview();
-      $("#gaps-apply").disabled = gapList.length === 0;
+      renderFixList(true);
+      renderFixPreview();
+      $("#fix-apply").disabled = fixList.length === 0;
     } catch (err) {
-      showToast("Find gaps failed: " + err.message);
+      showToast("Find issues failed: " + err.message);
       console.error(err);
     } finally {
       hideLoading();
     }
   });
 
-  $("#gaps-apply").addEventListener("click", async () => {
-    if (!pyodide) return;
-    const minDist = parseFloat($("#gaps-min-dist").value);
-    const minTime = parseFloat($("#gaps-min-time").value);
-    const gaps = selectedGapsIdx();
-    if (gaps.length == 0) {
+  $("#fix-apply").addEventListener("click", async () => {
+    const issues = selectedFixIdx();
+    if (issues.length == 0) {
       showToast("No gaps selected");
       return;
     }
-    const refs = $("#gaps-ref");
-    if (refs.files.length == 0) {
-      showToast("No reference GPX track provided");
-      return;
-    }
+    const refs = $("#fix-ref");
     let gapRefPath = null;
     try {
       showLoading("Loading dependencies…");
       await pyodide.loadPackage("scipy");
       showLoading("Filling gaps…");
-      const file = refs.files[0];
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      gapRefPath = `/tmp/gaps_ref_` + file.name;
-      pyodide.FS.writeFile(gapRefPath, bytes);
-      await pyodide.runPythonAsync(
-        `apply_fill_gaps('${gapRefPath}', min_distance=${minDist}, min_time=${minTime}, selected_gaps=${pyodide.toPy(gaps)})`,
-      );
-      gapList = [];
-      renderGapList();
-      renderGapPreview();
-      $("#gaps-apply").disabled = true;
+      if (refs.files.length > 0) {
+        const file = refs.files[0];
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        gapRefPath = `/tmp/fix_ref_` + file.name;
+        pyodide.FS.writeFile(gapRefPath, bytes);
+      }
+      let args = getFixConfig(gapRefPath);
+      args.selected = issues;
+      args.ref_path = gapRefPath ?? "";
+      await pyodide.runPythonAsync(`apply_fix(**${pyodide.toPy(args)})`);
+      clearFixList();
       emit("state_changed", true);
     } catch (err) {
-      showToast("Fill gaps failed: " + err.message);
+      showToast("Fixing failed: " + err.message);
       console.error(err);
     } finally {
       hideLoading();
@@ -812,17 +805,35 @@ function setupGaps() {
   });
 }
 
-function selectedGapsIdx() {
-  if (!gapList || gapList.length == 0) return [];
-  return [...document.querySelectorAll("#gaps-list input:checked")].map((cb) =>
+function getFixConfig() {
+  return {
+    gaps: $("#fix-gaps").checked,
+    frozen: $("#fix-frozen").checked,
+    distance: parseFloat($("#fix-min-dist").value),
+    duration: parseFloat($("#fix-min-time").value),
+    points: parseInt($("#fix-min-num").value),
+  };
+}
+
+function selectedFixIdx() {
+  if (!fixList || fixList.length == 0) return [];
+  return [...document.querySelectorAll("#fix-list input:checked")].map((cb) =>
     parseInt(cb.dataset.idx),
   );
 }
 
-function renderGapList(after) {
-  const list = $("#gaps-list");
-  if (gapList.length === 0) {
-    list.innerHTML = after ? '<div class="muted">No gaps found</div>' : "";
+function clearFixList() {
+  $("#fix-apply").disabled = true;
+  const hasList = fixList.length > 0;
+  fixList = [];
+  renderFixList();
+  if (hasList) renderFixPreview();
+}
+
+function renderFixList(after) {
+  const list = $("#fix-list");
+  if (fixList.length === 0) {
+    list.innerHTML = after ? '<div class="muted">No issues found</div>' : "";
     return;
   }
   const formatListItem = (g, i) => {
@@ -830,19 +841,19 @@ function renderGapList(after) {
       ? `${new Date(g.time).toLocaleString()}`
       : `(${g.start_lat.toFixed(5)}, ${g.start_lon.toFixed(5)})`;
     const duration = g.duration ? `, ${g.duration}` : "";
-    return `<li data-gap="${i}"><label><input type="checkbox" checked data-idx="${i}">&nbsp; Gap ${i + 1}:&nbsp; ${time}, ${g.distance}${duration}</label></li>`;
+    return `<li data-gap="${i}"><label><input type="checkbox" checked data-idx="${i}">&nbsp; ${time}, ${g.distance}${duration}</label></li>`;
   };
-  list.innerHTML = gapList.map(formatListItem).join("");
+  list.innerHTML = fixList.map(formatListItem).join("");
   list
     .querySelectorAll("input")
-    .forEach((cb) => cb.addEventListener("change", renderGapPreview));
+    .forEach((cb) => cb.addEventListener("change", renderFixPreview));
 }
 
-function renderGapPreview() {
+function renderFixPreview() {
   emit(
     "map_preview",
-    selectedGapsIdx()
-      .map((i) => gapList[i])
+    selectedFixIdx()
+      .map((i) => fixList[i])
       .map((g) => [
         [g.start_lat, g.start_lon],
         [g.end_lat, g.end_lon],
@@ -950,7 +961,7 @@ function setupButtons() {
       hideLoading();
     }
   });
-  
+
   $("#btn-undo").addEventListener("click", async () => {
     if (!pyodide) return;
     const hasGpx = await pyodide.runPythonAsync("to_js(undo())");
@@ -975,7 +986,7 @@ setupMap();
 setupMetadata();
 setupTrackMetadata();
 setupClean();
-setupGaps();
+setupFix();
 setupElevation();
 setupPyodide();
 setupPlots();

@@ -289,7 +289,7 @@ def test_cmd_fill(tmp_path):
     )
 
     buf = StringIO()
-    main(["fill", str(input_path), str(ref_path), "-o", "-"], out=buf)
+    main(["fix", str(input_path), str(ref_path), "-o", "-"], out=buf)
     gpx = GPX(BytesIO(buf.getvalue().encode()))
     assert len(list(gpx.points())) == 8
 
@@ -305,7 +305,7 @@ def test_cmd_fill_list(tmp_path):
     )
 
     buf = StringIO()
-    main(["fill", str(input_path), "--list", "--min-frozen=1"], out=buf)
+    main(["fix", str(input_path), "--list", "--min-frozen=1"], out=buf)
     output = buf.getvalue()
     print(output)
 
@@ -335,7 +335,7 @@ def test_cmd_fill_selective(tmp_path):
 
     buf = StringIO()
     main(
-        ["fill", "-", str(ref_path), "-o", str(out_path), "-s=2", "--select", "3,4"],
+        ["fix", "-", str(ref_path), "-o", str(out_path), "-s=2", "--select", "3-4"],
         out=buf,
         stdin=_file_to_stdin(gpx_path),
     )

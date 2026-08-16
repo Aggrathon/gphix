@@ -6,9 +6,9 @@
 - [x] Insert new points/tracks
 - [x] Add missing elevation data
 - [x] Fill gaps from reference GPX
-  - [ ] What about periods with frozen GPS coordinates?
+- [x] Fix frozen coordinates
+  - [ ] Over segment boundaries?
 - [x] Update metadata
-  - [x] What about metadata for tracks
 - [x] Clean GPX
 - [x] CLI
   - [x] Stats
@@ -16,7 +16,7 @@
   - [x] Trim
   - [x] Insert
   - [x] Elevation
-  - [x] Fill
+  - [x] Fix
   - [x] Clean
   - [x] Metadata 
 - [x] Web UI
@@ -36,7 +36,11 @@
     - [x] Trim
     - [x] Insert
     - [x] Elevation
-    - [x] Fill
+    - [x] Fix
   - [x] Pyodide (to use the library)
   - [x] Undo
   - [x] Save
+- [ ] README
+- [ ] License
+- [ ] GitHub
+  - [ ] Pages

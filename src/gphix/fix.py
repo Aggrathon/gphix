@@ -65,22 +65,18 @@ def find_frozen(
     """Find frozen sections in every segment."""
     sections: list[FrozenSection] = []
     for si, seg in enumerate(gpx.segments()):
-        points = list(seg.points())
-        frozen_start = 0
-        for i in range(len(points) - 1):
-            if not (
-                points[i].latitude == points[i + 1].latitude
-                and points[i].longitude == points[i + 1].longitude
-            ):
-                frozen_end = i + 1
-                if frozen_end - frozen_start > min_frozen:
-                    gap = Gap.between(points[frozen_start], points[frozen_end])
-                    if gap.distance < min_distance:
-                        continue
-                    if gap.duration is not None and gap.duration < min_duration:
-                        continue
-                    sections.append(FrozenSection(si, frozen_start, frozen_end, gap))
-                frozen_start = frozen_end
+        start_i = 0
+        start: GPXPoint = None  # type:ignore
+        for end_i, end in enumerate(seg.points()):
+            if end_i == 0:
+                start = end
+            elif (start.latitude != end.latitude) or (start.longitude != end.longitude):
+                if end_i - start_i > min_frozen:
+                    gap = Gap.between(start, end)
+                    if gap.distance > min_distance:  # noqa: SIM102
+                        if gap.duration is None or gap.duration > min_duration:
+                            sections.append(FrozenSection(si, start_i, end_i, gap))
+                start, start_i = end, end_i
     return sections
 
 
@@ -205,30 +201,26 @@ class ReferencePaths:
         return path
 
 
-def interpolate_time_linear(points: list[RefPoint], start: datetime, end: datetime):
-    if points:
-        dist = list(cum_distance((p.lat, p.lon, p.ele) for p in points))
-        time = (end - start).total_seconds() / (dist[-1] or 1.0)
-        for d, p in zip(dist, points):
-            p.time = start + timedelta(seconds=time * d)
-
-
-def interpolate_time_fill(
+def interpolate_time(
     points: list[RefPoint],
-    start_time: datetime | None,
-    end_time: datetime | None,
-    velocity: float,
+    start: datetime | None,
+    end: datetime | None,
+    velocity: float | None = None,
 ):
+    if not points:
+        return
     dist = list(cum_distance((p.lat, p.lon, p.ele) for p in points))
-    if start_time is not None:
-        for d, p in zip(dist, points):
-            p.time = start_time + timedelta(seconds=d / velocity)
-    elif end_time is not None:
-        off = dist[-1]
-        for d, p in zip(dist, points):
-            p.time = end_time + timedelta(seconds=(d - off) / velocity)
+    if velocity is not None:
+        if start is None:
+            assert end is not None
+            start = end - timedelta(seconds=dist[-1] / velocity)
+        elif end is None:
+            end = start + timedelta(seconds=dist[-1] / velocity)
     else:
-        raise ValueError("Must specify either start or end time.")
+        assert start is not None and end is not None
+    time = (end - start).total_seconds() / (dist[-1] or 1.0)
+    for d, p in zip(dist, points):
+        p.time = start + timedelta(seconds=time * d)
 
 
 def fill_gap(gpx: GPX, matcher: ReferencePaths, gap: Gap) -> bool:
@@ -237,12 +229,12 @@ def fill_gap(gpx: GPX, matcher: ReferencePaths, gap: Gap) -> bool:
     if len(path) <= 2:
         return False
     if gap.duration is not None:
-        interpolate_time_linear(path, gap.start.time, gap.end.time)  # type: ignore
+        interpolate_time(path, gap.start.time, gap.end.time)
     elif gap.start.time is not None or gap.end.time is not None:
         stats = gpx.stats(False)
         if stats.duration > 0 and stats.distance > 0:
             velocity = stats.distance / stats.duration
-            interpolate_time_fill(path, gap.start.time, gap.end.time, velocity)
+            interpolate_time(path, gap.start.time, gap.end.time, velocity)
     gpx.add_track(*((pt.lat, pt.lon, pt.ele, pt.time) for pt in path[1:-1]))
     return True
 

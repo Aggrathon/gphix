@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from gphix.fill import (
+from gphix.fix import (
     Gap,
     ReferencePaths,
     RefPoint,
@@ -17,8 +17,7 @@ from gphix.fill import (
     find_frozen,
     find_gaps,
     fix_frozen,
-    interpolate_time_fill,
-    interpolate_time_linear,
+    interpolate_time,
 )
 
 from .utils import Point, create_gpx
@@ -163,7 +162,12 @@ def test_find_path_multi_segment(second: bool):
     assert all(p.segment == int(second) for p in path[1:-1])
 
 
-def test_interpolate_linear():
+@pytest.mark.parametrize(
+    "start,end",
+    [(s, e) for s in (True, False) for e in (True, False) if e or s],
+    ids=["both", "start", "end"],
+)
+def test_interpolate_linear(start: bool, end: bool):
     """Both times → linear interpolation."""
     start_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
     end_time = datetime(2024, 1, 1, 12, 4, 0, tzinfo=UTC)
@@ -172,31 +176,18 @@ def test_interpolate_linear():
         RefPoint(-1, 48.81, 2.19),
         RefPoint(-1, 48.82, 2.18),
     ]
-    interpolate_time_linear(points, start_time, end_time)
+    dist = points[0].distance(points[1]) + points[1].distance(points[2])
+    time = (end_time - start_time).total_seconds()
+    interpolate_time(
+        points,
+        start_time if start else None,
+        end_time if end else None,
+        dist / time if not start or not end else None,
+    )
     assert points[0].time == start_time
     assert points[2].time == end_time
     for t1, t2 in itertools.pairwise(points):
         assert t1.time < t2.time
-
-
-def test_interpolate_fill():
-    """Only start → backfill from start."""
-    time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
-    points = [
-        RefPoint(-1, 48.8, 2.2),
-        RefPoint(-1, 48.81, 2.19),
-        RefPoint(-1, 48.82, 2.18),
-    ]
-    interpolate_time_fill(points, time, None, 1.0)
-    assert points[0].time == time
-    for t1, t2 in itertools.pairwise(points):
-        assert t1.time < t2.time
-    assert points[1].time is not None
-    interpolate_time_fill(points, None, time, 1.0)
-    assert points[-1].time == time
-    for t1, t2 in itertools.pairwise(points):
-        assert t1.time < t2.time
-    assert points[1].time is not None
 
 
 def test_fill_gaps():
