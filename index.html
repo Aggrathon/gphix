@@ -30,14 +30,13 @@
         <script src="https://cdn.jsdelivr.net/pyodide/v314.0.3/full/pyodide.js"></script>
     </head>
     <body>
-        <!-- Top pane: info sidebar | map | plots sidebar -->
         <div id="top">
             <aside id="info-panel">
                 <div class="section" style="z-index: 800">
                     <h1>GPhiX</h1>
-                    <div class="desc">Fix GPX tracks in your browser.</div>
-                    <div class="desc">All processing happens locally.</div>
-                    <div class="desc">No data leaves your machine.</div>
+                    <div class="desc" type="button">Edit GPX tracks in your browser.</div>
+                    <div class="desc" type="button">All processing happens locally.</div>
+                    <div class="desc" type="button">No data leaves your machine.</div>
                 </div>
                 <div class="section">
                     <h3>GPX Info</h3>
@@ -57,7 +56,6 @@
             </aside>
 
             <div id="map"></div>
-
             <aside id="plot-panel">
                 <div class="plot">
                     <h3>Time vs Distance</h3>
@@ -68,20 +66,20 @@
                     <div id="plot-elev-dist"></div>
                 </div>
             </aside>
+            <div class="relative"><button id="plot-toggle" type="button">▶</button></div>
         </div>
 
-        <!-- Tab bar -->
         <nav id="tabs" role="tablist" aria-label="Tabs">
             <button role="tab" aria-selected="true" id="tab-data" data-tab="data" type="button">Data</button>
             <button role="tab" aria-selected="false" id="tab-meta" data-tab="meta" type="button">Metadata</button>
             <button role="tab" aria-selected="false" id="tab-tracks" data-tab="tracks" type="button">Tracks</button>
             <button role="tab" aria-selected="false" id="tab-clean" data-tab="clean" type="button">Clean</button>
             <button role="tab" aria-selected="false" id="tab-trim" data-tab="trim" type="button">Trim</button>
-            <button role="tab" aria-selected="false" id="tab-insert" data-tab="insert" type="button">Insert</button>
+            <button role="tab" aria-selected="false" id="tab-insert" data-tab="insert" type="button">Create</button>
             <button role="tab" aria-selected="false" id="tab-elevation" data-tab="elevation" type="button">
                 Elevation
             </button>
-            <button role="tab" aria-selected="false" id="tab-fix" data-tab="fix" type="button">Fix</button>
+            <button role="tab" aria-selected="false" id="tab-fix" data-tab="fix" type="button">Missing</button>
             <div class="tab-actions">
                 <button class="action secondary" id="btn-undo" type="button">Undo</button>
                 <button class="action" id="btn-save" type="button">Save</button>
@@ -89,25 +87,22 @@
             <button role="tab" data-tab="minimize" aria-selected="false" title="Minimize tabs" type="button">▾</button>
         </nav>
 
-        <!-- Bottom pane (hideable) -->
         <div id="bottom">
-            <div class="tab-content" data-tab="data" role="tabpanel" aria-labelledby="tab-data">
-                <div class="row">
-                    <div class="col">
-                        <div class="drop-zone" aria-label="Drop GPX files here" tabindex="0" role="button">
-                            <div class="icon">📂</div>
-                            <div>Drag &amp; drop GPX files here</div>
-                            <div class="muted">or click to browse.</div>
-                            <div class="muted">Multiple files are merged together.</div>
-                        </div>
-                        <div class="row">
-                            <button class="action secondary" id="btn-reset" type="button">Reset</button>
-                        </div>
+            <div class="tab-content row" data-tab="data" role="tabpanel" aria-labelledby="tab-data">
+                <div class="col">
+                    <div class="drop-zone" aria-label="Drop GPX files here" tabindex="0" role="button">
+                        <div class="icon">📂</div>
+                        <div>Drag &amp; drop GPX files here</div>
+                        <div class="muted">or click to browse.</div>
+                        <div class="muted">Multiple files are merged together.</div>
                     </div>
-                    <ul class="col file-list" id="file-list">
-                        <h3>No Files Loaded</h3>
-                    </ul>
+                    <div class="row">
+                        <button class="action secondary" id="btn-reset" type="button">Reset</button>
+                    </div>
                 </div>
+                <ul class="col file-list" id="file-list" hidden>
+                    <h3>No Files Loaded</h3>
+                </ul>
             </div>
 
             <div class="tab-content" data-tab="trim" role="tabpanel" aria-labelledby="tab-trim" hidden>
@@ -160,95 +155,93 @@
                 </div>
             </div>
 
-            <div class="tab-content" data-tab="elevation" role="tabpanel" aria-labelledby="tab-elevation" hidden>
-                <div class="row">
-                    <div class="col">
-                        <fieldset>
-                            <legend>Fix Missing Elevation</legend>
-                            <div class="field">
-                                <label for="elev-sources">Reference files</label>
-                                <input
-                                    type="file"
-                                    id="elev-sources"
-                                    multiple
-                                    accept=".tiff,.tif,.img,.dat,.hgt,.gpx,.zip,.tar,.tgz,.tar.gz,.tar.bz2,.tar.xz"
-                                />
-                            </div>
-                            <div class="muted field">
-                                Elevation data can be found national databases (depending on location) or, e.g.,
-                                <a href="https://viewfinderpanoramas.org/dem3.html"
-                                    >https://viewfinderpanoramas.org/dem3.html</a
-                                >
-                            </div>
-                            <label class="field" for="elev-overwrite">
-                                <span class="label">Overwrite existing</span>
-                                <span><input type="checkbox" id="elev-overwrite" /></span>
-                            </label>
-                            <div class="field">
-                                <label for="elev-radius">Radius around reference tracks</label>
-                                <input type="number" id="elev-radius" class="small" value="50" />
-                                <span>meters</span>
-                            </div>
-                        </fieldset>
-                        <div class="row">
-                            <button class="action" id="elev-apply" disabled type="button">Fix Elevation</button>
+            <div class="tab-content row" data-tab="elevation" role="tabpanel" aria-labelledby="tab-elevation" hidden>
+                <div class="col">
+                    <fieldset>
+                        <legend>Fix Missing Elevation</legend>
+                        <div class="field">
+                            <label for="elev-sources">Reference files</label>
+                            <input
+                                type="file"
+                                id="elev-sources"
+                                multiple
+                                required
+                                accept=".tiff,.tif,.img,.dat,.hgt,.gpx,.zip,.tar,.tgz,.tar.gz,.tar.bz2,.tar.xz"
+                            />
                         </div>
+                        <div class="muted field">
+                            Elevation data can be found national databases (depending on location) or, e.g.,
+                            <a href="https://viewfinderpanoramas.org/dem3.html"
+                                >https://viewfinderpanoramas.org/dem3.html</a
+                            >
+                        </div>
+                        <label class="field check" for="elev-overwrite">
+                            <span class="label">Overwrite existing</span>
+                            <span><input type="checkbox" id="elev-overwrite" /></span>
+                        </label>
+                        <div class="field">
+                            <label for="elev-radius">Radius around reference tracks</label>
+                            <input type="number" id="elev-radius" class="small" value="50" />
+                            <span>meters</span>
+                        </div>
+                    </fieldset>
+                    <div class="row">
+                        <button class="action" id="elev-apply" disabled type="button">Fix Elevation</button>
                     </div>
-                    <ul class="col file-list" id="elev-list">
-                        <h3>No sources loaded</h3>
-                    </ul>
                 </div>
             </div>
 
-            <div class="tab-content" data-tab="fix" role="tabpanel" aria-labelledby="tab-fix" hidden>
-                <div class="row">
-                    <div class="col">
-                        <fieldset>
-                            <legend>Fill Gaps Between Segments and Fix Frozen GPS Coordinates</legend>
-                            <div class="field">
-                                <label for="fix-ref">Reference Track</label>
-                                <input type="file" id="fix-ref" accept=".gpx" />
-                                <button class="action secondary" id="fix-clear" type="button">Clear</button>
-                            </div>
-                            <label class="field" for="fix-gaps">
-                                <span class="label">Fill Gaps</span>
-                                <span><input type="checkbox" id="fix-gaps" checked /></span>
-                            </label>
-                            <label class="field" for="fix-frozen">
-                                <span class="label">Fill Frozen</span>
-                                <span><input type="checkbox" id="fix-frozen" checked /></span>
-                            </label>
-                            <div class="field">
-                                <label for="fix-min-dist">Min distance</label>
-                                <input type="number" id="fix-min-dist" class="small" value="100" />
-                                <span>meters</span>
-                            </div>
-                            <div class="field">
-                                <label for="fix-min-time">Min duration</label>
-                                <input type="number" id="fix-min-time" class="small" value="30" />
-                                <span>seconds</span>
-                            </div>
-                            <div class="field">
-                                <label for="fix-min-num">Min points</label>
-                                <input type="number" id="fix-min-num" class="small" value="3" />
-                            </div>
-                        </fieldset>
-                        <div class="row">
-                            <button class="action" id="fix-find" disabled type="button">Find Issues</button>
-                            <button class="action" id="fix-apply" disabled type="button">Fix Issues</button>
+            <div class="tab-content row" data-tab="fix" role="tabpanel" aria-labelledby="tab-fix" hidden>
+                <div class="col">
+                    <fieldset>
+                        <legend>Fix Missing Data</legend>
+                        <div class="field">
+                            <label for="fix-ref">Reference Track</label>
+                            <input type="file" id="fix-ref" accept=".gpx" />
+                            <button class="action secondary" id="fix-clear" type="button">Clear</button>
                         </div>
-                    </div>
-                    <div class="col file-list">
-                        <h3>Detected Issues</h3>
-                        <ul id="fix-list"></ul>
+                        <label class="field check" for="fix-gaps">
+                            <span class="label">Fill Gaps</span>
+                            <span class="muted"
+                                ><input type="checkbox" id="fix-gaps" checked /> &nbsp; Fill Gaps Between Segments</span
+                            >
+                        </label>
+                        <label class="field check" for="fix-frozen">
+                            <span class="label">Fix Frozen</span>
+                            <span class="muted"
+                                ><input type="checkbox" id="fix-frozen" checked /> &nbsp; Fix Frozen GPS
+                                Coordinates</span
+                            >
+                        </label>
+                        <div class="field">
+                            <label for="fix-min-dist">Min distance</label>
+                            <input type="number" id="fix-min-dist" class="small" value="100" />
+                            <span>meters</span>
+                        </div>
+                        <div class="field">
+                            <label for="fix-min-time">Min duration</label>
+                            <input type="number" id="fix-min-time" class="small" value="30" />
+                            <span>seconds</span>
+                        </div>
+                        <div class="field">
+                            <label for="fix-min-num">Min points</label>
+                            <input type="number" id="fix-min-num" class="small" value="3" />
+                        </div>
+                    </fieldset>
+                    <div class="row">
+                        <button class="action" id="fix-find" disabled type="button">Find Issues</button>
+                        <button class="action" id="fix-apply" disabled type="button">Fix Issues</button>
                     </div>
                 </div>
+                <ul class="col" id="fix-list" hidden>
+                    <h3>Detected Issues</h3>
+                </ul>
             </div>
 
             <div class="tab-content" data-tab="clean" role="tabpanel" aria-labelledby="tab-clean" hidden>
                 <fieldset>
                     <legend>Clean Outliers</legend>
-                    <label class="field" for="clean-outliers">
+                    <label class="field check" for="clean-outliers">
                         <span class="label">Remove outliers</span>
                         <span><input type="checkbox" id="clean-outliers" /></span>
                     </label>
@@ -269,14 +262,14 @@
                         <label for="clean-size">Min points</label>
                         <input type="number" id="clean-size" class="small" value="3" />
                     </div>
-                    <label class="field" for="clean-merge">
+                    <label class="field check" for="clean-merge">
                         <span class="label">Merge tracks</span>
                         <span><input type="checkbox" id="clean-merge" /></span>
                     </label>
                 </fieldset>
                 <fieldset>
                     <legend>Clean Metadata</legend>
-                    <label class="field" for="clean-bounds">
+                    <label class="field check" for="clean-bounds">
                         <span class="label">Add bounds</span>
                         <span><input type="checkbox" id="clean-bounds" /></span>
                     </label>

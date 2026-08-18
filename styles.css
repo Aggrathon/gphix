@@ -72,7 +72,7 @@ body {
 .row {
     display: flex;
     gap: var(--gap-lg);
-    align-items: center;
+    align-items: start;
 }
 
 .col {
@@ -97,7 +97,8 @@ body {
     min-height: 0;
     display: flex;
     flex-direction: row;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--accent-hover);
+    border-top: 1px solid var(--accent-hover);
 }
 
 #bottom {
@@ -111,15 +112,33 @@ body {
 
 #info-panel {
     width: 260px;
-    border-right: 1px solid var(--border);
+    border-right: 1px solid var(--accent-hover);
     overflow-y: auto;
+}
+
+.relative {
+    position: relative;
+}
+
+#plot-toggle {
+    height: 2.4em;
+    width: 2.4em;
+    padding: 1px 1px 3px 1px;
+    margin: var(--gap-sm);
+    position: absolute;
+    z-index: 600;
+    cursor: pointer;
+    right: 0px;
+    border: var(--border) solid 2px;
+    background-color: var(--bg-active);
 }
 
 #plot-panel {
     min-width: min(400px, 38vw);
     max-width: 33%;
     flex: 0.4;
-    border-left: 1px solid var(--border);
+    border-left: 1px solid var(--accent-hover);
+    padding-bottom: 3px;
 }
 
 #map {
@@ -241,6 +260,14 @@ input:disabled {
     background-color: var(--bg-disabled);
 }
 
+input:required:not(:valid) {
+    border-color: var(--alert);
+}
+
+label.check {
+    cursor: pointer;
+}
+
 /* ── Sidebars ───────────────────────────────────────────────────── */
 aside {
     display: flex;
@@ -269,6 +296,12 @@ h3 {
     color: var(--secondary-hover);
     padding-left: 1.2em;
     padding-top: var(--gap-sm);
+    cursor: pointer;
+}
+
+.desc:hover,
+.desc:focus {
+    text-decoration: underline dotted;
 }
 
 .section {
@@ -327,26 +360,18 @@ h3 {
     overflow-y: auto;
 }
 
-.file-list {
-    list-style: none;
-    overflow: auto;
-    margin-bottom: auto;
-    flex: 0.4;
-    flex-basis: 2em;
+.tab-content.row {
+    flex-direction: row;
 }
 
-.file-list li {
-    display: flex;
-    font-size: var(--font-sm);
-    font-family: monospace;
+#fix-list {
+    list-style: none;
+    min-width: 21em;
+    flex: 0.4;
 }
 
 #fix-list li {
     padding: var(--gap-sm) 0;
-}
-
-#fix-list li label {
-    cursor: pointer;
 }
 
 #track-cards {
@@ -436,6 +461,7 @@ h3 {
     text-align: center;
     cursor: pointer;
     flex: 1;
+    min-width: 17em;
 }
 
 .drop-zone:hover,
@@ -450,6 +476,20 @@ h3 {
     margin-bottom: var(--gap-md);
 }
 
+#file-list {
+    list-style: none;
+    overflow: auto;
+    margin-bottom: auto;
+    flex: 1;
+    min-width: 12em;
+}
+
+#file-list li {
+    display: flex;
+    font-size: var(--font-sm);
+    font-family: monospace;
+}
+
 /* ── Point table ──────────────────────────────────────────────────── */
 #point-table {
     width: 100%;
@@ -459,15 +499,18 @@ h3 {
 }
 
 th {
-    text-align: left;
     font-size: var(--font-md);
     color: var(--text-secondary);
+}
+
+#point-table th {
+    text-align: left;
     padding: var(--gap-md);
     padding-bottom: 0px;
     border-bottom: 2px solid var(--border);
 }
 
-td {
+#point-table td {
     padding: var(--gap-sm);
     vertical-align: middle;
 }

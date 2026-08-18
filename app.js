@@ -30,6 +30,14 @@ function hideLoading() {
   $("#loading").hidden = true;
 }
 
+async function hideLoadingLater() {
+  if (pyodide) {
+    await new Promise((r) => setTimeout(r, 100));
+    await pyodide.runPythonAsync("pass");
+  }
+  hideLoading();
+}
+
 const container = $("#toasts");
 function showToast(msg) {
   const el = document.createElement("div");
@@ -73,6 +81,7 @@ async function setupPyodide() {
   try {
     showLoading("Loading engine…");
     const py = await loadPyodide();
+    showLoading("Loading GPhiX…");
     py.FS.mkdirTree("/gphix");
     py.FS.writeFile("/gphix/__init__.py", '"""GPX file toolbox."""');
     for (const f of [
@@ -109,23 +118,23 @@ async function selectPoint(seg, idx) {
 async function handleFiles(files) {
   if (!pyodide || files.length == 0) return;
   showLoading("Processing GPX…");
+  let paths = [];
   try {
-    let paths = [];
     for (const file of files) {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      pyodide.FS.writeFile(`/tmp/` + file.name, bytes);
+      pyodide.FS.writeFile(`/tmp/${file.name}`, bytes);
       paths.push(file.name);
     }
     await pyodide.runPythonAsync(`load_gpx("/tmp", ${pyodide.toPy(paths)})`);
-    for (const path of paths) {
-      pyodide.FS.unlink(`/tmp/` + path);
-    }
     emit("state_changed", true);
   } catch (err) {
     showToast("Failed to parse GPX: " + err.message);
     console.error(err);
   } finally {
-    hideLoading();
+    for (const path of paths) {
+      pyodide.FS.unlink(`/tmp/${path}`);
+    }
+    hideLoadingLater();
   }
 }
 
@@ -157,7 +166,7 @@ function setupStats() {
     }
   });
 
-  on("state_changed", onShowStats);
+  on("meta_changed", onShowStats);
   on("state_changed", (show) => ($("#select-point").hidden = !show));
   on("point_selected", onSelectedPointStats);
   on("point_selected", enablePointSelection);
@@ -273,9 +282,14 @@ function setupPlots() {
   });
 
   on("resize", async (_) => {
-    await tdPlot.setSize(getSize($("#plot-time-dist")));
-    await edPlot.setSize(getSize($("#plot-elev-dist")));
-    if (sdPlot != null) drawPlotPoint(sdPlot);
+    // setTimeout(async () => {
+    const size = getSize($("#plot-time-dist"));
+    if (size.width > 0) {
+      await tdPlot.setSize(size);
+      await edPlot.setSize(getSize($("#plot-elev-dist")));
+      if (sdPlot != null) drawPlotPoint(sdPlot);
+    }
+    // }, 100);
   });
   on("state_changed", renderPlots);
   on("point_selected", onSelectedPointPlot);
@@ -308,8 +322,7 @@ async function onSelectedPointPlot(point) {
 
 async function renderPlots(hasGpx) {
   let data;
-  if (hasGpx && pyodide)
-    data = await pyodide.runPythonAsync("to_js(get_plot_data())");
+  if (hasGpx && pyodide) data = await pyodide.runPythonAsync("to_js(get_plot_data())");
   if (!data) data = [[], [], []];
   sdPlot = null;
   tdPlot.setData([data[0], data[1]]);
@@ -324,7 +337,7 @@ function setupMap() {
     attribution:
       '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   }).addTo(map);
-  on("resize", (_) => setTimeout(map.invalidateSize, 100));
+  on("resize", (_) => setTimeout(() => map.invalidateSize(false), 100));
   on("state_changed", renderMap);
   on("point_selected", onSelectedPointMap);
   on("map_preview", onPreviewPointMap);
@@ -426,10 +439,11 @@ function setupTabs() {
 async function updateFileList(hasGpx) {
   const list = $("#file-list");
   if (!hasGpx || !pyodide) {
-    list.innerHTML = "<h3>No files loaded</h3>";
+    list.hidden = true;
     return;
   }
-  list.innerHTML += "Processing GPX files...";
+  list.hidden = false;
+  list.innerHTML += "<p>Processing GPX files...</p>";
   const files = await pyodide.runPythonAsync("to_js(get_files())");
   if (files.length == 1) list.innerHTML = "<h3>Current GPX File</h3>";
   else if (files.length > 0) list.innerHTML = "<h3>Merged GPX Files</h3>";
@@ -460,9 +474,7 @@ function setupFileDrop() {
     e.preventDefault();
     dropZone.classList.add("dragover");
   });
-  dropZone.addEventListener("dragleave", () =>
-    dropZone.classList.remove("dragover"),
-  );
+  dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
   dropZone.addEventListener("drop", (e) => {
     e.preventDefault();
     dropZone.classList.remove("dragover");
@@ -481,17 +493,15 @@ function setupTrim() {
       `trim_before(${selectedPoint.seg},${selectedPoint.idx})`,
     );
     emit("state_changed", true);
-    hideLoading();
+    hideLoadingLater();
   });
 
   $("#btn-trim-after").addEventListener("click", async () => {
     if (!pyodide || selectedPoint == null) return;
     showLoading("Trimming GPX");
-    await pyodide.runPythonAsync(
-      `trim_after(${selectedPoint.seg},${selectedPoint.idx})`,
-    );
+    await pyodide.runPythonAsync(`trim_after(${selectedPoint.seg},${selectedPoint.idx})`);
     emit("state_changed", true);
-    hideLoading();
+    hideLoadingLater();
   });
   on("point_selected", (p) => {
     $("#btn-trim-before").disabled = $("#btn-trim-after").disabled = !p;
@@ -528,12 +538,11 @@ function setupMetadata() {
   $("#meta-apply").addEventListener("click", async () => {
     if (!pyodide) return;
     const values = {};
-    for (const field of metadataFields)
-      values[field] = $("#meta-" + field).value;
+    for (const field of metadataFields) values[field] = $("#meta-" + field).value;
     await pyodide.runPythonAsync(`set_metadata(**${pyodide.toPy(values)})`);
-    emit("state_changed", true);
+    emit("meta_changed", true);
   });
-  on("state_changed", loadMetadata);
+  on("meta_changed", loadMetadata);
 }
 
 // ── Track Metadata ────────────────────────────────────────────────
@@ -545,8 +554,7 @@ async function loadTrackMetadata(hasGpx) {
     return;
   }
   const tracks = await pyodide.runPythonAsync("to_js(get_track_metadata())");
-  if (tracks.length == 0)
-    cards.innerHTML = '<li class="muted field">No tracks</li>';
+  if (tracks.length == 0) cards.innerHTML = '<li class="muted field">No tracks</li>';
   else cards.innerHTML = "";
   for (let i = 0; i < tracks.length; i++) {
     const li = document.createElement("li");
@@ -577,12 +585,11 @@ function setupTrackMetadata() {
       description: $(`#track-${i}-description`).value,
       type: $(`#track-${i}-type`).value,
     }));
-    $("#track-cards").innerHTML =
-      '<li class="muted field">Updating tracks</li>';
+    $("#track-cards").innerHTML = '<li class="muted field">Updating tracks</li>';
     await pyodide.runPythonAsync(`set_track_metadata(${pyodide.toPy(tracks)})`);
-    emit("state_changed", true);
+    emit("meta_changed", true);
   });
-  on("state_changed", loadTrackMetadata);
+  on("meta_changed", loadTrackMetadata);
 }
 
 // ── Clean ──────────────────────────────────────────────────────────────
@@ -611,7 +618,7 @@ function setupClean() {
       showToast("Cleaning failed: " + err.message);
       console.error(err);
     } finally {
-      hideLoading();
+      hideLoadingLater();
     }
   });
 }
@@ -628,8 +635,7 @@ function createRow(lat = "", lon = "", ele = "", time = "") {
     inp.step = step;
     inp.value = value;
     inp.placeholder = placeholder;
-    if (update)
-      inp.addEventListener("input", () => emit("map_preview", getInsertRows()));
+    if (update) inp.addEventListener("input", () => emit("map_preview", getInsertRows()));
     td.appendChild(inp);
     return td;
   };
@@ -664,8 +670,7 @@ function createRow(lat = "", lon = "", ele = "", time = "") {
   });
   const removeBtn = makeActionBtn("\u00d7", "Remove", () => {
     tr.remove();
-    if (tbody.children.length === 1)
-      tbody.querySelector("[data-empty]").hidden = false;
+    if (tbody.children.length === 1) tbody.querySelector("[data-empty]").hidden = false;
     emit("map_preview", getInsertRows());
   });
   removeBtn.classList.add("danger");
@@ -709,10 +714,7 @@ function setupInsert() {
   on("point_selected", (point) => ($("#insert-copy").disabled = !point));
   on("state_changed", (hasGpx) => ($("#insert-apply").disabled = !hasGpx));
   on("map_clicked", (pt) => {
-    if (
-      !$("#insert-click-mode").checked ||
-      $(`.tab-content[data-tab="insert"]`).hidden
-    )
+    if (!$("#insert-click-mode").checked || $(`.tab-content[data-tab="insert"]`).hidden)
       return;
     createRow(pt.lat.toFixed(5), pt.lng.toFixed(5));
   });
@@ -734,7 +736,7 @@ function setupInsert() {
       showToast("Insert failed: " + err.message);
       console.error(err);
     } finally {
-      hideLoading();
+      hideLoadingLater();
     }
   });
 }
@@ -749,9 +751,7 @@ function setupFix() {
   });
 
   $("#fix-clear").addEventListener("click", () => ($("#fix-ref").value = ""));
-  for (const el of document.querySelectorAll(
-    '.tab-content[data-tab="fix"] input',
-  ))
+  for (const el of document.querySelectorAll('.tab-content[data-tab="fix"] input'))
     el.addEventListener("change", clearFixList);
 
   $("#fix-find").addEventListener("click", async () => {
@@ -777,21 +777,22 @@ function setupFix() {
       showToast("No gaps selected");
       return;
     }
+    showLoading("Loading dependencies…");
+    let args = getFixConfig();
+    args.selected = issues;
+    args.ref_path = "";
     const refs = $("#fix-ref");
-    let gapRefPath = null;
     try {
-      showLoading("Loading dependencies…");
       await pyodide.loadPackage("scipy");
-      showLoading("Filling gaps…");
+      showLoading("Loading reference…");
+      pyodide.FS.mkdirTree("/tmp/_fix_ref");
       if (refs.files.length > 0) {
         const file = refs.files[0];
         const bytes = new Uint8Array(await file.arrayBuffer());
-        gapRefPath = `/tmp/fix_ref_` + file.name;
-        pyodide.FS.writeFile(gapRefPath, bytes);
+        args.ref_path = `/tmp/_fix_ref/${file.name}`;
+        pyodide.FS.writeFile(args.ref_path, bytes);
       }
-      let args = getFixConfig(gapRefPath);
-      args.selected = issues;
-      args.ref_path = gapRefPath ?? "";
+      showLoading("Filling gaps…");
       await pyodide.runPythonAsync(`apply_fix(**${pyodide.toPy(args)})`);
       clearFixList();
       emit("state_changed", true);
@@ -799,8 +800,8 @@ function setupFix() {
       showToast("Fixing failed: " + err.message);
       console.error(err);
     } finally {
-      hideLoading();
-      if (gapRefPath) pyodide.FS.unlink(gapRefPath);
+      if (args.ref_path != "") pyodide.FS.unlink(gapRefPath);
+      hideLoadingLater();
     }
   });
 }
@@ -826,14 +827,17 @@ function clearFixList() {
   $("#fix-apply").disabled = true;
   const hasList = fixList.length > 0;
   fixList = [];
-  renderFixList();
+  const list = $("#fix-list");
+  list.hidden = true;
+  list.innerHTML = "";
   if (hasList) renderFixPreview();
 }
 
 function renderFixList(after) {
   const list = $("#fix-list");
+  list.hidden = false;
   if (fixList.length === 0) {
-    list.innerHTML = after ? '<div class="muted">No issues found</div>' : "";
+    list.innerHTML = after ? "<h3>No issues found</h3>" : "";
     return;
   }
   const formatListItem = (g, i) => {
@@ -841,9 +845,9 @@ function renderFixList(after) {
       ? `${new Date(g.time).toLocaleString()}`
       : `(${g.start_lat.toFixed(5)}, ${g.start_lon.toFixed(5)})`;
     const duration = g.duration ? `, ${g.duration}` : "";
-    return `<li data-gap="${i}"><label><input type="checkbox" checked data-idx="${i}">&nbsp; ${time}, ${g.distance}${duration}</label></li>`;
+    return `<li data-gap="${i}"><label class="check"><input type="checkbox" checked data-idx="${i}">&nbsp; ${time}, ${g.distance}${duration}</label></li>`;
   };
-  list.innerHTML = fixList.map(formatListItem).join("");
+  list.innerHTML = "<h3>Detected Issues</h3>" + fixList.map(formatListItem).join("");
   list
     .querySelectorAll("input")
     .forEach((cb) => cb.addEventListener("change", renderFixPreview));
@@ -862,62 +866,44 @@ function renderFixPreview() {
 }
 
 // ── Elevation ─────────────────────────────────────────────────────────
-let elevSources = [];
-
 function setupElevation() {
-  const elevInput = $("#elev-sources");
-  elevInput.value = "";
-  elevInput.addEventListener("change", async () => {
-    if (!pyodide || elevInput.files.length === 0) return;
-    const list = $("#elev-list");
-    for (const file of elevInput.files) {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      pyodide.FS.writeFile(`/tmp/elev_` + file.name, bytes);
-      elevSources.push(`/tmp/elev_` + file.name);
-      if (elevSources.length === 1)
-        list.innerHTML = "<h3>Elevation Sources</h3>";
-      const li = document.createElement("li");
-      li.textContent = file.name;
-      list.appendChild(li);
-    }
-  });
   $("#elev-apply").addEventListener("click", async () => {
-    if (!pyodide) return;
-    if (elevSources.length === 0) {
-      showToast("No reference files loaded");
+    const elevInput = $("#elev-sources");
+    if (elevInput.files.length === 0) {
+      showToast("No elevation reference files loaded");
       return;
     }
-    const radius = parseFloat($("#elev-radius").value);
-    const overwrite = $("#elev-overwrite").checked ? "True" : "False";
-    showLoading("Adding elevation…");
+    const args = {
+      radius: parseFloat($("#elev-radius").value),
+      overwrite: $("#elev-overwrite").checked ? "True" : "False",
+      paths: [],
+    };
     try {
       showLoading("Loading dependencies…");
       await pyodide.loadPackage("rasterio");
       await pyodide.loadPackage("scipy");
+      showLoading("Reading files…");
+      pyodide.FS.mkdirTree("/tmp/_elev_ref");
+      for (const file of elevInput.files) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        pyodide.FS.writeFile(`/tmp/_elev_ref/${file.name}`, bytes);
+        args.paths.push(`/tmp/_elev_ref/${file.name}`);
+      }
       showLoading("Adding elevation…");
-      await pyodide.runPythonAsync(
-        `apply_elevation(${pyodide.toPy(elevSources)}, radius=${radius}, overwrite=${overwrite})`,
-      );
-      resetElevFiles();
+      await pyodide.runPythonAsync(`apply_elevation(**${pyodide.toPy(args)})`);
       emit("state_changed", true);
     } catch (err) {
       showToast("Elevation failed: " + err.message);
       console.error(err);
     } finally {
-      hideLoading();
+      for (const file of args.paths) {
+        pyodide.FS.unlink(file);
+      }
+      hideLoadingLater();
     }
   });
 
   on("state_changed", (hasGpx) => ($("#elev-apply").disabled = !hasGpx));
-}
-
-function resetElevFiles() {
-  for (const file of elevSources) {
-    pyodide.FS.unlink(file);
-  }
-  elevSources = [];
-  $("#elev-sources").value = "";
-  $("#elev-list").innerHTML = "<h3>No Sources Loaded</h3>";
 }
 
 // ── State and File buttons ───────────────────────────────────────────
@@ -970,28 +956,44 @@ function setupButtons() {
   $("#btn-reset").addEventListener("click", async () => {
     if (!pyodide) return;
     await pyodide.runPythonAsync("reset()");
-    resetElevFiles();
     emit("state_changed", false);
+  });
+  $("#plot-toggle").addEventListener("click", async () => {
+    const plotPanel = $("#plot-panel");
+    plotPanel.hidden = !plotPanel.hidden;
+    $("#plot-toggle").textContent = plotPanel.hidden ? "◀" : "▶";
+    emit("resize", null);
+  });
+
+  document.querySelectorAll(".desc").forEach((d) => {
+    d.addEventListener("click", async () => {
+      showLoading("Preloading dependencies…");
+      await pyodide.loadPackage("rasterio");
+      await pyodide.loadPackage("scipy");
+      hideLoading();
+      showToast("Offline mode activated");
+    });
   });
 }
 
 // ── Init ─────────────────────────────────────────────────────────────
 setupTabs();
 setupFileDrop();
-setupTrim();
-setupInsert();
 setupButtons();
 setupStats();
-setupMap();
 setupMetadata();
 setupTrackMetadata();
 setupClean();
-setupFix();
+setupTrim();
+setupInsert();
 setupElevation();
-setupPyodide();
+setupFix();
+setupMap();
 setupPlots();
+setupPyodide();
 
 on("state_changed", (_) => emit("point_selected", null));
+on("state_changed", (b) => emit("meta_changed", b));
 on("point_selected", (pt) => (selectedPoint = pt));
 window.addEventListener("resize", (e) => emit("resize", null));
 emit("state_changed", false);
