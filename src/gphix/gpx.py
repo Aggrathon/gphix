@@ -235,7 +235,7 @@ class GPXPoint:
 
     @latitude.setter
     def latitude(self, value: float) -> None:
-        self.element.set("lat", f"{value:.6g}")
+        self.element.set("lat", f"{value:.7f}")
 
     @property
     def longitude(self) -> float:
@@ -243,7 +243,7 @@ class GPXPoint:
 
     @longitude.setter
     def longitude(self, value: float) -> None:
-        self.element.set("lon", f"{value:.6g}")
+        self.element.set("lon", f"{value:.7f}")
 
     @property
     def elevation(self) -> float | None:
@@ -252,7 +252,7 @@ class GPXPoint:
 
     @elevation.setter
     def elevation(self, value: float | None) -> None:
-        self._set("ele", f"{value:.5g}" if value is not None else None)
+        self._set("ele", f"{value:.3f}" if value is not None else None)
 
     @property
     def time(self) -> datetime | None:

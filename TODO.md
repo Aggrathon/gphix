@@ -7,7 +7,7 @@
 - [x] Add missing elevation data
 - [x] Fill gaps from reference GPX
 - [x] Fix frozen coordinates
-  - [ ] Over segment boundaries?
+  - [x] Over segment boundaries
 - [x] Update metadata
 - [x] Clean GPX
 - [x] CLI

@@ -126,6 +126,7 @@ async function handleFiles(files) {
       paths.push(file.name);
     }
     await pyodide.runPythonAsync(`load_gpx("/tmp", ${pyodide.toPy(paths)})`);
+    showLoading("Updating state…");
     emit("state_changed", true);
   } catch (err) {
     showToast("Failed to parse GPX: " + err.message);
@@ -492,6 +493,7 @@ function setupTrim() {
     await pyodide.runPythonAsync(
       `trim_before(${selectedPoint.seg},${selectedPoint.idx})`,
     );
+    showLoading("Updating state…");
     emit("state_changed", true);
     hideLoadingLater();
   });
@@ -500,6 +502,7 @@ function setupTrim() {
     if (!pyodide || selectedPoint == null) return;
     showLoading("Trimming GPX");
     await pyodide.runPythonAsync(`trim_after(${selectedPoint.seg},${selectedPoint.idx})`);
+    showLoading("Updating state…");
     emit("state_changed", true);
     hideLoadingLater();
   });
@@ -603,7 +606,7 @@ function setupClean() {
 
   $("#clean-apply").addEventListener("click", async () => {
     try {
-      showLoading("Cleaning GPX");
+      showLoading("Cleaning GPX…");
       const args = [
         $("#clean-outliers").checked,
         parseFloat($("#clean-max-dist").value),
@@ -613,6 +616,7 @@ function setupClean() {
         $("#clean-bounds").checked,
       ];
       await pyodide.runPythonAsync(`apply_clean(*${pyodide.toPy(args)})`);
+      showLoading("Updating state…");
       emit("state_changed", true);
     } catch (err) {
       showToast("Cleaning failed: " + err.message);
@@ -727,6 +731,7 @@ function setupInsert() {
         if (r.time) r.time = new Date(r.time).toISOString();
       });
       await pyodide.runPythonAsync(`insert_points(${pyodide.toPy(rows)})`);
+      showLoading("Updating state…");
       $("#point-rows")
         .querySelectorAll("tr:not([data-empty])")
         .forEach((e) => e.remove());
@@ -794,13 +799,14 @@ function setupFix() {
       }
       showLoading("Filling gaps…");
       await pyodide.runPythonAsync(`apply_fix(**${pyodide.toPy(args)})`);
+      showLoading("Updating state…");
       clearFixList();
       emit("state_changed", true);
     } catch (err) {
       showToast("Fixing failed: " + err.message);
       console.error(err);
     } finally {
-      if (args.ref_path != "") pyodide.FS.unlink(gapRefPath);
+      if (args.ref_path != "") pyodide.FS.unlink(args.ref_path);
       hideLoadingLater();
     }
   });
@@ -844,8 +850,9 @@ function renderFixList(after) {
     const time = g.time
       ? `${new Date(g.time).toLocaleString()}`
       : `(${g.start_lat.toFixed(5)}, ${g.start_lon.toFixed(5)})`;
+    const length = g.length > 0 ? `, ${g.length}` : ", gap";
     const duration = g.duration ? `, ${g.duration}` : "";
-    return `<li data-gap="${i}"><label class="check"><input type="checkbox" checked data-idx="${i}">&nbsp; ${time}, ${g.distance}${duration}</label></li>`;
+    return `<li data-gap="${i}"><label class="check"><input type="checkbox" checked data-idx="${i}">&nbsp; ${time}, ${g.distance}${duration}${length}</label></li>`;
   };
   list.innerHTML = "<h3>Detected Issues</h3>" + fixList.map(formatListItem).join("");
   list
@@ -891,6 +898,7 @@ function setupElevation() {
       }
       showLoading("Adding elevation…");
       await pyodide.runPythonAsync(`apply_elevation(**${pyodide.toPy(args)})`);
+      showLoading("Updating state…");
       emit("state_changed", true);
     } catch (err) {
       showToast("Elevation failed: " + err.message);

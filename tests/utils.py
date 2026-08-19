@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from os import PathLike
@@ -6,7 +6,7 @@ from os import PathLike
 import numpy as np
 import pytest
 
-from gphix.gpx import GPX, GPXMetadata
+from gphix.gpx import GPX, GPXMetadata, GPXPoint
 
 
 @dataclass(slots=True)
@@ -142,3 +142,11 @@ def create_tif_grid(
 
 def no_np_warn():
     return pytest.mark.filterwarnings("ignore:Setting the shape:DeprecationWarning")
+
+
+def assert_same_points(a: Iterable[GPXPoint], b: Iterable[GPXPoint]):
+    for pa, pb in zip(a, b, strict=True):
+        assert pa.latitude == pb.latitude
+        assert pa.longitude == pb.longitude
+        assert pa.elevation == pb.elevation
+        assert pa.time == pb.time

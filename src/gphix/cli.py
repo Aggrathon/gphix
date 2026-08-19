@@ -523,13 +523,13 @@ def _cmd_fix(
 
     if list_gaps:
 
-        def print_gap(i: int, gap, num: int | None = None):
+        def print_gap(i: int, gap):
             print(
                 f"{i}  {gap.start.lat:.5f},{gap.start.lon:.5f} →",
                 f"{gap.end.lat:.5f},{gap.end.lon:.5f} ",
                 f"dist={format_distance(gap.distance)} ",
                 f"duration={format_duration(gap.duration) if gap.duration is not None else 'N/A'} ",
-                f"length={num}" if num else "",
+                f"length={len(gap.points) - 2}" if gap.points else "",
                 file=out,
             )
 
@@ -544,7 +544,7 @@ def _cmd_fix(
             frozen = find_frozen(gpx, min_distance, min_time, min_frozen)
             print("Frozen sections:" if frozen else "No frozen sections", file=out)
             for i, sec in enumerate(frozen):
-                print_gap(i + len(gaps), sec.gap, sec.end_idx - sec.start_idx)
+                print_gap(i + len(gaps), sec)
         return
 
     ref = ReferencePaths(_load_gpx(ref_file, stdin) if ref_file else None)
@@ -571,7 +571,7 @@ def _cmd_fix(
         if not no_gaps:
             upd.append(f"{ngap} gap(s)")
         if not no_frozen:
-            upd.append(f"{nfrozen} frozen section(s)")
+            upd.append(f"{nfrozen} frozen point(s)")
         print(f"Fixed {' and '.join(upd)} from {ref_file} → {output}", file=out)
         _print_stats(gpx, out)
     else:

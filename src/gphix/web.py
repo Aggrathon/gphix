@@ -306,12 +306,11 @@ def find_issues(
             else g.end.time.isoformat()
             if g.end.time
             else "",
+            "length": len(g.points) if g.points else 0,
         }
         for g in itertools.chain(
             find_gaps(current.gpx, distance, duration) if gaps else (),
-            (f.gap for f in find_frozen(current.gpx, distance, duration, points))
-            if frozen
-            else (),
+            find_frozen(current.gpx, distance, duration, points) if frozen else (),
         )
     ]
 

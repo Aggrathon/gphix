@@ -10,14 +10,6 @@ from gphix.utils import LocalKDTree, cum_distance, distance, project_to_edge
 
 
 @dataclass(slots=True)
-class FrozenSection:
-    segment_index: int  # 0-based index into gpx.segments()
-    start_idx: int  # first point in the frozen sequence
-    end_idx: int  # first point after the frozen sequence
-    gap: Gap
-
-
-@dataclass(slots=True)
 class RefPoint:
     segment: int
     lat: float
@@ -45,6 +37,7 @@ class Gap:
     end: RefPoint
     distance: float
     duration: float | None = None
+    points: list[GPXPoint] | None = None
 
     @classmethod
     def between(cls, before: GPXPoint, after: GPXPoint) -> Gap:
@@ -61,22 +54,25 @@ def find_frozen(
     min_distance: float = 50.0,
     min_duration: float = 30.0,
     min_frozen: int = 3,
-) -> list[FrozenSection]:
+) -> list[Gap]:
     """Find frozen sections in every segment."""
-    sections: list[FrozenSection] = []
-    for si, seg in enumerate(gpx.segments()):
-        start_i = 0
-        start: GPXPoint = None  # type:ignore
-        for end_i, end in enumerate(seg.points()):
-            if end_i == 0:
-                start = end
-            elif (start.latitude != end.latitude) or (start.longitude != end.longitude):
-                if end_i - start_i > min_frozen:
-                    gap = Gap.between(start, end)
-                    if gap.distance > min_distance:  # noqa: SIM102
-                        if gap.duration is None or gap.duration > min_duration:
-                            sections.append(FrozenSection(si, start_i, end_i, gap))
-                start, start_i = end, end_i
+    sections = []
+    section = []
+    start = (float("nan"), float("nan"))
+    for seg in gpx.segments(sorted=True):
+        for pt in seg.points():
+            end = pt.latitude, pt.longitude
+            if start == end:
+                section.append(pt)
+                continue
+            if len(section) > min_frozen:
+                gap = Gap.between(section[0], pt)
+                if gap.distance > min_distance:  # noqa: SIM102
+                    if gap.duration is None or gap.duration > min_duration:
+                        section.append(pt)
+                        gap.points = section
+                        sections.append(gap)
+            section, start = [pt], end
     return sections
 
 
@@ -267,18 +263,16 @@ def fix_frozen(
     min_frozen: int = 3,
     selected_sections: list[int] | None = None,
 ) -> int:
-    """Fix frozen sections by interpolating coordinates. Returns the count fixed."""
+    """Fix frozen sections by interpolating coordinates. Returns the number of points fixed."""
     sections = find_frozen(gpx, min_distance, min_duration, min_frozen)
     if selected_sections is not None:
         sections = [sections[i] for i in selected_sections]
     if sections:
         matcher = ref if isinstance(ref, ReferencePaths) else ReferencePaths(ref)
-        segments = gpx.segments(sorted=False)
-        for sec in sections:
-            seg = segments[sec.segment_index]
-            path = matcher.find_path(sec.gap)
-            _interpolate_path(list(seg.points())[sec.start_idx : sec.end_idx + 1], path)
-    return len(sections)
+    for gap in sections:
+        path = matcher.find_path(gap)
+        _interpolate_path(gap.points or [], path)
+    return sum((max(len(g.points or []) - 2, 0) for g in sections), 0)
 
 
 def _interpolate_path(points: list[GPXPoint], path: list[RefPoint]):
@@ -289,10 +283,10 @@ def _interpolate_path(points: list[GPXPoint], path: list[RefPoint]):
     idx = 0
     for j in range(1, m - 1):
         target_dist = j / (m - 1) * total_dist
-        while dists[idx + 1] < target_dist:
+        while (len(dists) > idx + 2) and (dists[idx + 1] < target_dist):
             idx += 1
         seg_dist = dists[idx + 1] - dists[idx]
-        seg_t = (target_dist - dists[idx]) / seg_dist if seg_dist > 0 else 0
+        seg_t = 0.0 if seg_dist <= 0.0 else ((target_dist - dists[idx]) / seg_dist)
         p1, p2 = path[idx], path[idx + 1]
         points[j].latitude = p1.lat + seg_t * (p2.lat - p1.lat)
         points[j].longitude = p1.lon + seg_t * (p2.lon - p1.lon)
