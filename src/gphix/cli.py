@@ -700,3 +700,7 @@ def _cmd_tracks(
         print(f"    Name: {track.name or ''}", file=out)
         print(f"    Desc: {track.description or ''}", file=out)
         print(f"    Type: {track.track_type or ''}", file=out)
+
+
+if __name__ == "__main__":
+    main()

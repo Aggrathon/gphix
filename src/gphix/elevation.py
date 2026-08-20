@@ -6,9 +6,11 @@ import tarfile
 import zipfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from functools import lru_cache
 from io import BytesIO
 from os import PathLike
 from typing import IO
+from weakref import ReferenceType
 
 from gphix.gpx import GPX, GPXPoint
 from gphix.utils import LocalKDTree, haversine, project_to_edge
@@ -20,11 +22,11 @@ TAR_EXT = (".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz")
 
 
 class DEMFile:
-    _interpn: Callable | None = None
+    _rgi: Callable | None = None
 
     def __init__(self, path: str | PathLike | IO[bytes]):
         import rasterio
-        from rasterio.crs import CRS
+        from rasterio.crs import CRS  # type: ignore
         from rasterio.transform import rowcol
         from rasterio.warp import transform
         from rasterio.windows import Window
@@ -34,37 +36,48 @@ class DEMFile:
         self._window = Window.from_slices
         self.handle = rasterio.open(path)
         self.crs = CRS.from_epsg(4326)
+        self.ref = ReferenceType(self)
 
     def close(self):
         self.handle.close()
+        self.ref = None
 
     def elevation(self, latitude: float, longitude: float) -> float | None:
-        height, width = self.handle.shape
         lon, lat = self._transform(self.crs, self.handle.crs, [longitude], [latitude])
         rowf, colf = self._rowcol(self.handle.transform, lon[0], lat[0], op=lambda v: v)
-        row, col = int(rowf), int(colf)
+        rgi = DEMFile._interp(self.ref, int(rowf), int(colf))
+        if rgi is not None:
+            return rgi(rowf - 0.5, colf - 0.5)
+
+    @classmethod
+    @lru_cache(16)
+    def _interp(
+        cls, ref: ReferenceType[DEMFile], col: int, row: int
+    ) -> Callable[[float, float], float] | None:
+        self: DEMFile = ref()  # type: ignore
+        height, width = self.handle.shape
         if 0 <= row < height and 0 <= col < width:
             rows = (max(row - 1, 0), min(row + 2, height))
             cols = (max(col - 1, 0), min(col + 2, width))
             dem = self.handle.read(1, window=self._window(rows, cols))
             if dem.size:
                 # if self.handle.nodata is not None:
+                #     dem = dem.astype(self.handle.nodata.dtype)
                 #     dem[dem == self.handle.nodata] = math.nan
                 if dem.size == 1:
-                    return float(dem[0, 0])
-                if self._interpn is None:
-                    from scipy.interpolate import interpn
+                    return lambda _r, _c: float(dem[0, 0])
+                if cls._rgi is None:
+                    from scipy.interpolate import RegularGridInterpolator
 
-                    self._interpn = interpn
-                elevation = self._interpn(
+                    cls._rgi = RegularGridInterpolator
+                rgi = cls._rgi(
                     (range(*rows), range(*cols)),
                     dem[..., None],
-                    [[rowf - 0.5, colf - 0.5]],
                     method="slinear",
                     bounds_error=False,
                     fill_value=None,
-                )[0, 0]
-                return float(elevation)
+                )
+                return lambda r, c: float(rgi([[r, c]])[0, 0])
 
 
 def open_elevation_sources(
@@ -263,6 +276,7 @@ class ElevationDataManager:
             dem_file.close()
         self.dem_files.clear()
         self.gpx_provider = None
+        DEMFile._interp.cache_clear()
 
 
 def add_elevation_to_gpx(
