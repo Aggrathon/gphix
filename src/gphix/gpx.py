@@ -413,6 +413,7 @@ class GPX:
         """Write the GPX to a file."""
         if self.uri:
             ET.register_namespace("", self.uri)
+        self.root.set("creator", "GPhiX")
         self.tree.write(output_path, encoding="utf-8", xml_declaration=True)
 
     def stats(self, count_routes: bool = True) -> GPXStats:
@@ -548,16 +549,6 @@ class GPX:
         if outliers:
             self._remove_outliers(max_distance, max_time)
 
-        for trk in self.root.iterfind("gpx:trk", self.namespaces):
-            for seg in trk.iterfind("gpx:trkseg", self.namespaces):
-                if len(seg) < min_size:
-                    trk.remove(seg)
-            if len(trk) == 0:
-                self.root.remove(trk)
-        for rte in self.root.iterfind("gpx:rte", self.namespaces):
-            if len(rte) == 0:
-                self.root.remove(rte)
-
         if merge_tracks:
             track_count = len(self.root.findall("gpx:trk", self.namespaces))
             if track_count >= 2:
@@ -571,6 +562,16 @@ class GPX:
                 for trk in self.root.findall("gpx:trk", self.namespaces):
                     self.root.remove(trk)
                 self.root.append(merged)
+
+        for trk in self.root.iterfind("gpx:trk", self.namespaces):
+            for seg in trk.iterfind("gpx:trkseg", self.namespaces):
+                if len(seg) < min_size:
+                    trk.remove(seg)
+            if trk.find("gpx:trkseg", self.namespaces) is None:
+                self.root.remove(trk)
+        for rte in self.root.iterfind("gpx:rte", self.namespaces):
+            if len(rte) == 0:
+                self.root.remove(rte)
 
         meta = self.metadata()
         if add_bounds and meta is None:

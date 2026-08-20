@@ -103,6 +103,7 @@ def test_gpx_class_parse(tmp_path):
     gpx = GPX(input_gpx)
     points = list(gpx.points())
     assert len(points) == 3
+    assert gpx.root.get("creator") == "GPhiX_test"
 
     for point in points:
         assert point.elevation == 100.0
@@ -118,6 +119,7 @@ def test_gpx_class_parse(tmp_path):
 
     gpx.write(output_gpx)
     gpx2 = GPX(output_gpx)
+    assert gpx2.root.get("creator") == "GPhiX"
     assert gpx2.to_string() == gpx.to_string()
 
 

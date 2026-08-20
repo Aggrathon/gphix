@@ -74,7 +74,7 @@ def create_gpx_file(
 
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
-        '<gpx version="1.1" creator="GPhiX" xmlns="http://www.topografix.com/GPX/1/1">',
+        '<gpx version="1.1" creator="GPhiX_test" xmlns="http://www.topografix.com/GPX/1/1">',
     ]
     if metadata:
         lines.append(metadata.to_string())
