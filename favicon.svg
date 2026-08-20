@@ -1,0 +1,21 @@
+<svg viewBox="14 14 100 100" xmlns="http://www.w3.org/2000/svg">
+  <title>GPhiX</title>
+
+  <!-- Compass Φ -->
+  <g transform="rotate(17 64 64)">
+    <circle cx="64" cy="64" r="35" fill="#fff" stroke="#555" stroke-width="7.5"/>
+    <line x1="64" y1="64" x2="64" y2="110" stroke="#000" stroke-width="10" stroke-linecap="round"/>
+    <line x1="64" y1="18" x2="64" y2="64" stroke="#d1241b" stroke-width="12" stroke-linecap="round"/>
+    <circle cx="64" cy="64" r="10.5" fill="#805511"/>
+    <circle cx="64" cy="64" r="7" fill="#f59e0b"/>
+  </g>
+
+  <!-- G -->
+  <path d="M42 23 A15 15 0 1 0 52 38" fill="none" stroke="#15803d" stroke-width="10" stroke-linecap="round"/>
+  <path d="M38 38 L52 38" fill="none" stroke="#15803d" stroke-width="10" stroke-linecap="round"/>
+
+  <!-- X -->
+  <line x1="76" y1="76" x2="106" y2="106" stroke="#15803d" stroke-width="10" stroke-linecap="round"/>
+  <line x1="106" y1="76" x2="76" y2="106" stroke="#15803d" stroke-width="10" stroke-linecap="round"/>
+
+</svg>
