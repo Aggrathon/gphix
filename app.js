@@ -77,7 +77,7 @@ function cmpArray(a, b) {
 
 // ── Pyodide ─────────────────────────────────────────────────────
 let pyodide = null;
-async function setupPyodide() {
+async function initPyodide() {
   try {
     showLoading("Loading engine…");
     const py = await loadPyodide();
@@ -111,12 +111,15 @@ from pyodide.ffi import to_js
 }
 
 async function selectPoint(seg, idx) {
+  if (!pyodide) return;
   const point = await pyodide.runPythonAsync(`to_js(get_point(${seg},${idx}))`);
   emit("point_selected", point);
 }
 
 async function handleFiles(files) {
-  if (!pyodide || files.length == 0) return;
+  if (files.length == 0) return;
+  if (!pyodide) await initPyodide();
+  if (!pyodide) return;
   showLoading("Processing GPX…");
   let paths = [];
   try {
@@ -582,6 +585,7 @@ async function loadTrackMetadata(hasGpx) {
 
 function setupTrackMetadata() {
   $("#track-apply").addEventListener("click", async () => {
+    if (!pyodide) return;
     const len = $("#track-cards").children.length;
     const tracks = [...Array(len).keys()].map((i) => ({
       name: $(`#track-${i}-name`).value,
@@ -605,6 +609,7 @@ function setupClean() {
   });
 
   $("#clean-apply").addEventListener("click", async () => {
+    if (!pyodide) return;
     try {
       showLoading("Cleaning GPX…");
       const args = [
@@ -759,6 +764,7 @@ function setupFix() {
     el.addEventListener("change", clearFixList);
 
   $("#fix-find").addEventListener("click", async () => {
+    if (!pyodide) return;
     showLoading("Finding issues…");
     try {
       fixList = await pyodide.runPythonAsync(
@@ -776,6 +782,7 @@ function setupFix() {
   });
 
   $("#fix-apply").addEventListener("click", async () => {
+    if (!pyodide) return;
     const issues = selectedFixIdx();
     if (issues.length == 0) {
       showToast("No gaps selected");
@@ -874,6 +881,7 @@ function renderFixPreview() {
 // ── Elevation ─────────────────────────────────────────────────────────
 function setupElevation() {
   $("#elev-apply").addEventListener("click", async () => {
+    if (!pyodide) return;
     const elevInput = $("#elev-sources");
     if (elevInput.files.length === 0) {
       showToast("No elevation reference files loaded");
@@ -918,6 +926,7 @@ function setupButtons() {
   on("state_changed", (hasGpx) => ($("#btn-save").disabled = !hasGpx));
 
   $("#btn-save").addEventListener("click", async () => {
+    if (!pyodide) return;
     showLoading("Saving GPX");
     try {
       const files = await pyodide.runPythonAsync("get_files()");
@@ -974,6 +983,8 @@ function setupButtons() {
 
   document.querySelectorAll(".desc").forEach((d) => {
     d.addEventListener("click", async () => {
+      if (!pyodide) await initPyodide();
+      if (!pyodide) return;
       showLoading("Preloading dependencies…");
       await pyodide.loadPackage("rasterio");
       await pyodide.loadPackage("scipy");
@@ -997,7 +1008,6 @@ setupElevation();
 setupFix();
 setupMap();
 setupPlots();
-setupPyodide();
 
 on("state_changed", (_) => emit("point_selected", null));
 on("state_changed", (b) => emit("meta_changed", b));
