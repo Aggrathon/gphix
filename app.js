@@ -707,12 +707,11 @@ function setupInsert() {
   $("#btn-add-row").addEventListener("click", createRow);
   $("#insert-copy").addEventListener("click", () => {
     if (!selectedPoint) return;
-    const pt = selectedPoint;
     createRow(
-      pt.lat.toFixed(5),
-      pt.lon.toFixed(5),
-      pt.ele != null ? pt.ele.toFixed(1) : "",
-      pt.time ? formatLocalTime(new Date(pt.time)) : "",
+      selectedPoint.lat.toFixed(5),
+      selectedPoint.lon.toFixed(5),
+      selectedPoint.ele != null ? selectedPoint.ele.toFixed(1) : "",
+      selectedPoint.time ? formatLocalTime(new Date(selectedPoint.time)) : "",
     );
   });
   on("point_selected", (point) => ($("#insert-copy").disabled = !point));

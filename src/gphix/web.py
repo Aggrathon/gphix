@@ -45,7 +45,6 @@ class AppState:
     gpx: GPX
     files: list[str]
     stats: dict[str, str] | None = None
-    meta: dict[str, str | None] | None = None
     segments: list[list[Point]] | None = None
 
 
@@ -79,10 +78,13 @@ def next(state: AppState):
     current = state
 
 
-def clone_next() -> GPX | None:
+def clone_next(shallow: bool = False) -> GPX | None:
     if current:
         gpx = deepcopy(current.gpx)
-        next(AppState(gpx, current.files if current else []))
+        if shallow and current:
+            next(AppState(gpx, current.files, current.stats, current.segments))
+        else:
+            next(AppState(gpx, current.files if current else []))
         return gpx
 
 
@@ -125,21 +127,19 @@ def get_stats() -> dict[str, str]:
 def get_metadata() -> dict[str, str | None]:
     if current is None:
         return {}
-    if current.meta is None:
-        meta = current.gpx.metadata()
-        if not meta:
-            current.meta = {}
-        else:
-            current.meta = {
-                "name": meta.name,
-                "description": meta.description,
-                "author": meta.author,
-                "email": meta.email,
-                "copyright": meta.copyright,
-                "keywords": meta.keywords,
-                "time": meta.time.isoformat() if meta.time else None,
-            }
-    return current.meta
+    meta = current.gpx.metadata()
+    if not meta:
+        return {}
+    else:
+        return {
+            "name": meta.name,
+            "description": meta.description,
+            "author": meta.author,
+            "email": meta.email,
+            "copyright": meta.copyright,
+            "keywords": meta.keywords,
+            "time": meta.time.isoformat() if meta.time else None,
+        }
 
 
 def get_segments() -> list[list[list[float]]]:
@@ -236,7 +236,7 @@ def get_track_metadata() -> list[dict[str, str | None]]:
 
 
 def set_track_metadata(tracks: list[dict[str, str]]) -> None:
-    if gpx := clone_next():
+    if gpx := clone_next(shallow=True):
         for t, meta in zip(gpx.tracks(), tracks):
             t.name = meta.get("name") or None
             t.description = meta.get("description") or None
@@ -246,7 +246,7 @@ def set_track_metadata(tracks: list[dict[str, str]]) -> None:
 def set_metadata(
     name: str, description: str, author: str, email: str, copyright: str, keywords: str
 ):
-    if gpx := clone_next():
+    if gpx := clone_next(shallow=True):
         meta = gpx.metadata() or GPXMetadata()
         meta.name = name or None
         meta.description = description or None
