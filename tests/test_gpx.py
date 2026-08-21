@@ -240,14 +240,14 @@ def test_clean():
     assert len(gpx.segments()[-1]) == 5
     gpx.clean(outliers=True, add_bounds=True)
     assert len(gpx.segments()[-1]) == 4
-    assert gpx.metadata().time == time
+    assert gpx.metadata().time == time  # type: ignore
     seg = gpx.add_track().add_segment()
     for i in [-11, 202, 203, 204, 205, 406, 507, 508, 509, 510, 511, 612]:
         seg.add_point(1.0, 1.0, time=time + timedelta(seconds=i))
     assert len(gpx.segments()[-1]) == 12
     gpx.clean(outliers=True, max_time=50, min_size=2)
     assert len(gpx.segments()[-1]) == 9
-    assert gpx.metadata().time > time
+    assert gpx.metadata().time > time  # type: ignore
 
 
 def test_clean_merge_tracks():

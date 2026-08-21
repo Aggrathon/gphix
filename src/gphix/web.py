@@ -21,6 +21,8 @@ from gphix.utils import (
 
 @dataclass(slots=True)
 class Point:
+    """A single point with lat/lon, elevation, time, and cumulative distance."""
+
     lat: float
     lon: float
     ele: float | None = None
@@ -42,6 +44,8 @@ class Point:
 
 @dataclass(slots=True)
 class AppState:
+    """Snapshot of the current application state (loaded GPX, files, computed data)."""
+
     gpx: GPX
     files: list[str]
     stats: dict[str, str] | None = None
@@ -53,6 +57,7 @@ previous: list[AppState] = []
 
 
 def reset():
+    """Discard current state, pushing it onto the undo stack."""
     global current
     if current is not None:
         previous.append(current)
@@ -60,6 +65,7 @@ def reset():
 
 
 def undo() -> bool:
+    """Restore the previous state from the undo stack. Returns True if there is a state."""
     global current
     if previous:
         current = previous.pop()
@@ -70,6 +76,7 @@ def undo() -> bool:
 
 
 def next(state: AppState):
+    """Save the current state (if any) and set a new state."""
     global current
     if current is None:
         previous.clear()
@@ -79,9 +86,14 @@ def next(state: AppState):
 
 
 def clone_next(shallow: bool = False) -> GPX | None:
+    """Clone the current GPX, apply a state transition, and return the clone.
+
+    Args:
+        shallow: If True, reuse stats and segments from the current state.
+    """
     if current:
         gpx = deepcopy(current.gpx)
-        if shallow and current:
+        if shallow:
             next(AppState(gpx, current.files, current.stats, current.segments))
         else:
             next(AppState(gpx, current.files if current else []))
@@ -89,6 +101,12 @@ def clone_next(shallow: bool = False) -> GPX | None:
 
 
 def load_gpx(root: str, paths: list[str]):
+    """Load one or more GPX files and merge them into the current state.
+
+    Args:
+        root: Base directory for resolving relative paths.
+        paths: List of GPX file paths to load.
+    """
     dir = Path(root)
     if current is None:
         gpxs = [GPX(dir / p) for p in paths]
@@ -102,6 +120,7 @@ def load_gpx(root: str, paths: list[str]):
 
 
 def get_stats() -> dict[str, str]:
+    """Compute and return stats (points, tracks, segments, distance, duration, elevation). Cached on first call."""
     if current is None:
         return {}
     if current.stats is None:
@@ -125,6 +144,7 @@ def get_stats() -> dict[str, str]:
 
 
 def get_metadata() -> dict[str, str | None]:
+    """Return parsed metadata from the current GPX file."""
     if current is None:
         return {}
     meta = current.gpx.metadata()
@@ -143,6 +163,7 @@ def get_metadata() -> dict[str, str | None]:
 
 
 def get_segments() -> list[list[list[float]]]:
+    """Return all track/route segments as lists of [lat, lon] coordinates. Cached on first call."""
     if current is None:
         return []
     if current.segments is None:
@@ -156,6 +177,7 @@ def get_segments() -> list[list[list[float]]]:
 def get_plot_data() -> (
     tuple[list[float], list[float | None], list[float | None]] | None
 ):
+    """Return (distance, time, elevation) arrays for plotting. Cached on first call."""
     if current is None:
         return None
     if current.segments is None:
@@ -168,16 +190,12 @@ def get_plot_data() -> (
         last = None
         for seg in current.segments:
             if last is not None:
-                pd = last.dist + distance((last.coord(), seg[0].coord()))
+                pd = last.dist + distance((last.coord(), seg[0].coord()))  # type: ignore
             for d, p in zip(cum_distance(p.coord() for p in seg), seg):
                 p.dist = pd + d
             last = seg[-1]
     dist, time, elev = [], [], []
     for seg in current.segments:
-        if dist:
-            dist.append(dist[-1])
-            time.append(None)
-            elev.append(None)
         dist.extend(p.dist for p in seg)
         time.extend((p.time.timestamp() if p.time else None) for p in seg)
         elev.extend(p.ele for p in seg)
@@ -187,6 +205,7 @@ def get_plot_data() -> (
 def get_point(
     seg_idx: int, pt_idx: int | None = None
 ) -> dict[str, str | float | None] | None:
+    """Return a single point's data. If *pt_idx* is None seg_idx is treated as a flat index."""
     if current is None or current.segments is None:
         return None
     if pt_idx is None:
@@ -205,6 +224,7 @@ def get_point(
 
 
 def get_point_idx(idx: int) -> tuple[int, int] | None:
+    """Convert a flat point index into (segment_index, point_in_segment)."""
     if current is None or not current.segments:
         return None
     elif idx == 0:
@@ -220,6 +240,7 @@ def get_point_idx(idx: int) -> tuple[int, int] | None:
 
 
 def get_files() -> list[str]:
+    """Return the list of loaded file paths."""
     if current is None:
         return []
     else:
@@ -227,6 +248,7 @@ def get_files() -> list[str]:
 
 
 def get_track_metadata() -> list[dict[str, str | None]]:
+    """Return metadata (name, description, type) for each track in the current GPX."""
     if current is None:
         return []
     return [
@@ -235,7 +257,8 @@ def get_track_metadata() -> list[dict[str, str | None]]:
     ]
 
 
-def set_track_metadata(tracks: list[dict[str, str]]) -> None:
+def set_track_metadata(tracks: list[dict[str, str]]):
+    """Set metadata (name, description, type) for each track in the current GPX."""
     if gpx := clone_next(shallow=True):
         for t, meta in zip(gpx.tracks(), tracks):
             t.name = meta.get("name") or None
@@ -246,6 +269,7 @@ def set_track_metadata(tracks: list[dict[str, str]]) -> None:
 def set_metadata(
     name: str, description: str, author: str, email: str, copyright: str, keywords: str
 ):
+    """Set current GPX metadata fields."""
     if gpx := clone_next(shallow=True):
         meta = gpx.metadata() or GPXMetadata()
         meta.name = name or None
@@ -258,11 +282,13 @@ def set_metadata(
 
 
 def trim_before(seg_idx: int, pt_idx: int):
+    """Trim everything before the given point in the current GPX."""
     if gpx := clone_next():
         trim(gpx, start=(seg_idx, pt_idx))
 
 
 def trim_after(seg_idx: int, pt_idx: int):
+    """Trim everything after the given point in the current GPX."""
     if gpx := clone_next():
         trim(gpx, end=(seg_idx, pt_idx))
 
@@ -275,11 +301,13 @@ def apply_clean(
     merge_tracks: bool = False,
     add_bounds: bool = False,
 ):
+    """Clean the current GPX."""
     if gpx := clone_next():
         gpx.clean(outliers, max_distance, max_time, min_size, merge_tracks, add_bounds)
 
 
 def apply_elevation(paths: list[str], radius: float = 50.0, overwrite: bool = False):
+    """Add elevation data to the current GPX from external sources."""
     if gpx := clone_next():
         add_elevation_to_gpx(gpx, paths, overwrite=overwrite, radius=radius)
 
@@ -291,6 +319,7 @@ def find_issues(
     duration: float = 30.0,
     points: int = 3,
 ) -> list[dict[str, str | float]]:
+    """Find gap and frozen-section issues in the current GPX."""
     if current is None:
         return []
     return [
@@ -324,6 +353,7 @@ def apply_fix(
     points: int = 3,
     selected: list[int] | None = None,
 ):
+    """Apply fixes (gap filling and/or frozen section repair) to the current GPX."""
     if gpx := clone_next():
         ref = ReferencePaths(GPX(ref_path) if ref_path else None)
         if gaps and frozen and selected:
@@ -339,7 +369,7 @@ def apply_fix(
 
 
 def insert_points(rows: list[dict[str, str | float]]) -> None:
-    """Add all rows as a single new track."""
+    """Add all rows as a single new track to the current GPX."""
     if gpx := clone_next():
         seg = gpx.add_track().add_segment()
         for row in rows:

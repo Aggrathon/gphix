@@ -31,7 +31,7 @@ def test_find_gaps_basic():
     )
     (gap,) = find_gaps(gpx, min_distance=200.0)
     assert abs(gap.distance - 341_000) < 1000
-    assert abs(gap.duration - 3600 + 10) < 0.1
+    assert gap.duration == pytest.approx(3600 - 10)
 
 
 def test_find_gaps_min_distance():
@@ -187,7 +187,7 @@ def test_interpolate_linear(start: bool, end: bool):
     assert points[0].time == start_time
     assert points[2].time == end_time
     for t1, t2 in itertools.pairwise(points):
-        assert t1.time < t2.time
+        assert t1.time < t2.time  # type: ignore
 
 
 def test_fill_gaps():

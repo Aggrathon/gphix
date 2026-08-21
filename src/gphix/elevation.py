@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import itertools
 import math
 import tarfile
 import zipfile
@@ -12,7 +11,7 @@ from os import PathLike
 from typing import IO
 from weakref import ReferenceType
 
-from gphix.gpx import GPX, GPXPoint
+from gphix.gpx import GPX
 from gphix.utils import LocalKDTree, haversine, project_to_edge
 
 GEOSPATIAL_EXT = (".tif", ".tiff", ".img", ".jp2", ".ras", ".dat", ".hgt")
@@ -22,6 +21,8 @@ TAR_EXT = (".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz")
 
 
 class DEMFile:
+    """Wrapper around a rasterio DEM (Digital Elevation Model) file."""
+
     _rgi: Callable | None = None
 
     def __init__(self, path: str | PathLike | IO[bytes]):
@@ -39,10 +40,12 @@ class DEMFile:
         self.ref = ReferenceType(self)
 
     def close(self):
+        """Close the underlying rasterio handle and clear the weak reference."""
         self.handle.close()
         self.ref = None
 
     def elevation(self, latitude: float, longitude: float) -> float | None:
+        """Return the elevation at the given (lat, lon), or ``None``."""
         lon, lat = self._transform(self.crs, self.handle.crs, [longitude], [latitude])
         rowf, colf = self._rowcol(self.handle.transform, lon[0], lat[0], op=lambda v: v)
         rgi = DEMFile._interp(self.ref, int(rowf), int(colf))
@@ -81,7 +84,7 @@ class DEMFile:
 
 
 def open_elevation_sources(
-    paths: Sequence[PathLike], extract: bool = False
+    paths: Sequence[PathLike | str], extract: bool = False
 ) -> tuple[list[DEMFile], list[GPX]]:
     """Open elevation sources (expanding archives).
 
@@ -120,10 +123,10 @@ def open_elevation_sources(
                         continue
                     nl = item.name.lower()
                     if nl.endswith(GPX_EXT):
-                        gpxs.append(GPX(archive.extractfile(item)))
+                        gpxs.append(GPX(archive.extractfile(item)))  # type: ignore
                     elif nl.endswith(GEOSPATIAL_EXT):
                         if extract:
-                            dems.append(DEMFile(archive.extractfile(item)))
+                            dems.append(DEMFile(archive.extractfile(item)))  # type: ignore
                         else:
                             dems.append(DEMFile(f"tar+file://{path_str}!{item.name}"))
         else:
@@ -154,9 +157,15 @@ class GPXInterpolator:
         for src in gpxs:
             gpx: GPX = src if isinstance(src, GPX) else GPX(src)
             for seg in gpx.segments(sorted=False, routes=True):
-                for p1, p2 in itertools.pairwise(seg.points()):
-                    if p1.elevation is not None and p2.elevation is not None:
-                        edges.append(Edge.new(p1, p2))
+                start = None
+                for pt in seg.points():
+                    if (ele := pt.elevation) is not None:
+                        end = (pt.latitude, pt.longitude, ele)
+                        if start is not None:
+                            edges.append(Edge(start, end))
+                        start = end
+                    else:
+                        start = None
 
         if not edges:
             return
@@ -196,13 +205,6 @@ class Edge:
     point1: tuple[float, float, float]
     point2: tuple[float, float, float]
 
-    @classmethod
-    def new(cls, p1: GPXPoint, p2: GPXPoint) -> Edge:
-        return Edge(
-            (p1.latitude, p1.longitude, p1.elevation),
-            (p2.latitude, p2.longitude, p2.elevation),
-        )
-
     def closest(self, lat: float, lon: float) -> tuple[float, float]:
         """Return (distance, elevation) of the closest point on the edge."""
         (lat2, lon2, ele2) = project_to_edge(self.point1, self.point2, (lat, lon))
@@ -230,7 +232,10 @@ class ElevationDataManager:
     """
 
     def __init__(
-        self, paths: Sequence[PathLike], radius: float = 50.0, extract: bool = False
+        self,
+        paths: Sequence[PathLike | str],
+        radius: float = 50.0,
+        extract: bool = False,
     ):
         self.paths = paths
         self.dem_files = []
@@ -281,7 +286,7 @@ class ElevationDataManager:
 
 def add_elevation_to_gpx(
     gpx: GPX,
-    paths: Sequence[PathLike],
+    paths: Sequence[PathLike | str],
     overwrite: bool = False,
     extract: bool = False,
     radius: float = 50.0,

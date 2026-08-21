@@ -4,7 +4,7 @@ import itertools
 import math
 from collections.abc import Iterable, Iterator
 from math import radians
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, overload
 
 if TYPE_CHECKING:
     from _typeshed import SupportsRichComparisonT
@@ -106,6 +106,22 @@ def update_bounds(
         maxv = max(max(values), maxv) if maxv is not None else max(values)
         minv = min(min(values), minv) if minv is not None else min(values)
     return minv, maxv
+
+
+@overload
+def project_to_edge(
+    p1: tuple[float, float, float],
+    p2: tuple[float, float, float],
+    pt: tuple[float, float],
+) -> tuple[float, float, float]: ...
+
+
+@overload
+def project_to_edge(
+    p1: tuple[float, float, float | None],
+    p2: tuple[float, float, float | None],
+    pt: tuple[float, float],
+) -> tuple[float, float, float | None]: ...
 
 
 def project_to_edge(

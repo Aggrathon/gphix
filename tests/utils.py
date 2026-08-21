@@ -21,8 +21,8 @@ class Point:
 
 
 def create_gpx(
-    *tracks: Sequence[Point],
-    waypoints: Sequence[Point] | None = None,
+    *tracks: Iterable[Point],
+    waypoints: Iterable[Point] | None = None,
     base_time: datetime = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
     metadata: GPXMetadata | None = None,
 ) -> GPX:
@@ -121,7 +121,7 @@ def create_tif_grid(
     import rasterio
     from rasterio.transform import from_bounds
 
-    if np.isscalar(elevations):
+    if isinstance(elevations, (float, int)):
         elevations = np.full((3, 3), elevations, dtype=np.float32)
     height, width = elevations.shape
     transform = from_bounds(west, south, east, north, width, height)

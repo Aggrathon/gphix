@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import copy
 import xml.etree.ElementTree as ET
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from io import BytesIO, StringIO
+from math import isfinite
 from os import PathLike
 
 from .utils import distance, last, update_bounds
@@ -322,7 +323,7 @@ class GPX:
         return GPXPoint(wpt, self.uri, self.namespaces)
 
     @classmethod
-    def merge(cls, sources: list[GPX | PathLike | BytesIO]) -> GPX:
+    def merge(cls, sources: Sequence[GPX | PathLike | BytesIO]) -> GPX:
         """Merge multiple GPX files or objects into a single GPX object."""
         first = sources[0]
         merged: GPX = copy.deepcopy(first) if isinstance(first, GPX) else GPX(first)
@@ -417,7 +418,11 @@ class GPX:
         self.tree.write(output_path, encoding="utf-8", xml_declaration=True)
 
     def stats(self, count_routes: bool = True) -> GPXStats:
-        """Compute and return statistics for all points in the GPX."""
+        """Compute and return statistics for all points in the GPX.
+
+        Args:
+            count_routes: Whether to include route segments in the calculation.
+        """
         duration = 0.0
         length = 0.0
         points = 0
@@ -458,7 +463,7 @@ class GPX:
         """Return `GPXSegment` objects.
 
         Args:
-            sort: Sort segments temporally, bridging gaps with time-less
+            sorted: Sort segments temporally, bridging gaps with time-less
                 segments by geographic proximity.
             routes: Also include route segments (`rte` elements).
         """
@@ -580,25 +585,28 @@ class GPX:
             add_time = add_bounds or meta.time is not None
             add_bounds = add_bounds or meta.min_lat is not None
             if add_bounds:
-                meta.min_lat = float("inf")
-                meta.min_lon = float("inf")
-                meta.max_lat = -float("inf")
-                meta.max_lon = -float("inf")
+                min_lat = min_lon = float("inf")
+                max_lat = max_lon = -float("inf")
             if add_time:
                 orig_time = datetime.max.replace(tzinfo=UTC)
-                meta.time = orig_time
+                meta_time = orig_time
             if add_bounds or add_time:
                 for pt in self.points():
                     if add_time and (time := pt.time) is not None:
-                        meta.time = min(meta.time, time)
+                        meta_time = min(meta_time, time)
                     if add_bounds:
                         lat, lon = pt.latitude, pt.longitude
-                        meta.min_lat = min(meta.min_lat, lat)
-                        meta.max_lat = max(meta.max_lat, lat)
-                        meta.min_lon = min(meta.min_lon, lon)
-                        meta.max_lon = max(meta.max_lon, lon)
-                if add_time and meta.time == orig_time:
-                    meta.time = None
+                        min_lat = min(min_lat, lat)
+                        max_lat = max(max_lat, lat)
+                        min_lon = min(min_lon, lon)
+                        max_lon = max(max_lon, lon)
+                if add_bounds and isfinite(min_lat):
+                    meta.min_lat = min_lat
+                    meta.max_lat = max_lat
+                    meta.min_lon = min_lon
+                    meta.max_lon = max_lon
+                if add_time:
+                    meta.time = meta_time if meta_time != orig_time else None
             self.set_metadata(meta)
 
     def _remove_outliers(self, max_distance: float, max_time: float) -> None:

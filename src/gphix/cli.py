@@ -127,7 +127,7 @@ def main(
     fix_parser.add_argument(
         "--list",
         action="store_true",
-        help="List gaps and frozen section without modifying ",
+        help="List gaps and frozen section without modifying the GPX",
     )
     fix_parser.add_argument(
         "--min-distance",
@@ -347,7 +347,7 @@ def _cmd_stats(input_file: Path, out: TextIO, stdin: BytesIO | None = None):
 
 def _cmd_merge(input_files: list[Path], output: Path, out: TextIO):
     """Handle the ``merge`` subcommand."""
-    merged = GPX.merge(input_files)  # type: ignore
+    merged = GPX.merge(input_files)
     if output != Path("-"):
         merged.write(output)
         print(f"Merged {len(input_files)} file(s) → {output}", file=out)
@@ -513,7 +513,7 @@ def _cmd_fix(
     out: TextIO,
     stdin: BytesIO | None = None,
 ):
-    """Handle the ``fill`` subcommand."""
+    """Handle the ``fix`` subcommand."""
     if no_frozen and no_gaps:
         return print(
             "Cannot disable both frozen fixing and gap filling at the same time",
