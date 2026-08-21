@@ -1,6 +1,6 @@
 # <img alt="logo" src="favicon.svg" height="30"> GPhiX 
 
-A toolbox for editing and fixing GPX files. Use it in your [browser](index.html), or from the command line, or as a Python library.
+A toolbox for editing and fixing GPX files. Use it in your [browser](https://aggrathon.github.io/gphix/), or from the command line, or as a Python library.
 
 ## Functionality
 
@@ -16,13 +16,19 @@ All interfaces support the same core operations:
 
 ## Web App
 
-The easiest way to get started. Open the [web app](index.html) in your browser — no installation required. All processing runs locally; nothing leaves your machine. The web app also shows the GPS tracks on a map and in plots.
+The easiest way to get started. Open the [web app](https://aggrathon.github.io/gphix/) in your browser — no installation required. All processing runs locally; nothing leaves your machine. The web app also shows the GPS tracks on a map and in plots.
 
 ## CLI
 
-Install with `pip install gphix`, then run `gphix --help` and `gphix <subcommand> --help` for usage details. Supports stdin/stdout via `-`.
+To install. run [`uv`](https://github.com/astral-sh/uv)`tool install git+https://github.com/Aggrathon/gphix`.
+Then use `gphix --help` and `gphix <subcommand> --help` for usage details. Supports stdin/stdout via `-`.
+
+Alternatively, to run without installing use `uvx git+https://github.com/Aggrathon/gphix --help`.
 
 ## Library
+
+To install the library, clone the repo and run `uv sync`. This also provides access to the `gphix` CLI.
+Or use `uv add git+https://github.com/Aggrathon/gphix` to add it as an dependency of existing projects.
 
 ```py
 from gphix import GPX
