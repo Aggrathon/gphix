@@ -1,4 +1,4 @@
-# ![logo](favicon.svg) GPhiX
+# <img alt="logo" src="favicon.svg" height="30"> GPhiX 
 
 A toolbox for editing and fixing GPX files. Use it in your [browser](index.html), or from the command line, or as a Python library.
 
