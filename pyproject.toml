@@ -1,7 +1,7 @@
 [project]
 name = "gphix"
-version = "0.1.0"
-description = "Add your description here"
+version = "1.0.0"
+description = "A toolbox to edit and fix issues with GPX files."
 readme = "README.md"
 authors = [
     { name = "Aggrathon", email = "antonbjo@gmail.com" }
