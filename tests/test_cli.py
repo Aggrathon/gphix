@@ -11,7 +11,7 @@ from pathlib import Path
 from gphix.cli import main
 from gphix.gpx import GPX, GPXMetadata
 
-from .utils import Point, create_gpx_file, create_tif_grid, no_np_warn
+from .utils import Point, create_gpx, create_gpx_file, create_tif_grid, no_np_warn
 
 
 def _file_to_stdin(path: Path | GPX) -> BytesIO:
@@ -462,3 +462,67 @@ def test_cmd_tracks_set(tmp_path):
     assert tracks[0].name == "A"
     assert tracks[0].description == "B"
     assert tracks[0].track_type == "C"
+
+
+def test_cmd_fuse_offset_flag(tmp_path):
+    """Test fuse with explicit --offset using stdin/stdout."""
+    source = tmp_path / "source.gpx"
+    base = create_gpx([Point(48.8 + i * 0.01, 2.2, time=i) for i in range(10)])
+    create_gpx_file(
+        source, [Point(48.8 + i * 0.01, 2.2, ele=10, time=i) for i in range(10)]
+    )
+
+    buf = StringIO()
+    main(
+        ["fuse", "-", str(source), "-o", "-", "--offset", "0"],
+        out=buf,
+        stdin=_file_to_stdin(base),
+    )
+
+    _assert_raw_xml(buf)
+    fused = GPX(BytesIO(buf.getvalue().encode()))
+    for pt in fused.segments()[0].points():
+        assert pt.elevation is not None
+
+
+def test_cmd_fuse_suggest(tmp_path):
+    """Test fuse --suggest outputs offset only."""
+    base = tmp_path / "base.gpx"
+    source = tmp_path / "source.gpx"
+
+    create_gpx_file(base, [Point(0.3 + i * 0.01, 2.2, time=i) for i in range(10)])
+    create_gpx_file(
+        source, [Point(0.3 + i * 0.01, 2.2, ele=10, time=i + 5) for i in range(10)]
+    )
+
+    buf = StringIO()
+    main(["fuse", str(base), str(source), "--suggest"], out=buf)
+    output = buf.getvalue()
+
+    assert "Suggested offset:" in output
+    assert "source leads base" in output
+
+
+def test_cmd_fuse_multiple_sources(tmp_path):
+    """Test fuse with 2+ source files."""
+    base = tmp_path / "base.gpx"
+    source1 = tmp_path / "source1.gpx"
+    source2 = tmp_path / "source2.gpx"
+    out = tmp_path / "fused.gpx"
+
+    create_gpx_file(base, [Point(5.0 + i * 0.01, 2.2, time=i) for i in range(10)])
+    create_gpx_file(
+        source1, [Point(5.0 + i * 0.01, 2.2, ele=10, time=i + 5) for i in range(5)]
+    )
+    create_gpx_file(
+        source2, [Point(5.0 + i * 0.01, 2.2, ele=10, time=i + 10) for i in range(5, 10)]
+    )
+
+    buf = StringIO()
+    main(["fuse", str(base), str(source1), str(source2), "-o", str(out)], out=buf)
+    output = buf.getvalue()
+
+    assert "Offset:" in output
+    fused = GPX(out)
+    for pt in fused.segments()[0].points():
+        assert pt.elevation is not None

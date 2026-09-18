@@ -335,9 +335,9 @@ class GPX:
                     merged.root.append(copy.deepcopy(child))
         return merged
 
-    def points(self) -> Iterator[GPXPoint]:
+    def points(self, tracks_only: bool = False) -> Iterator[GPXPoint]:
         """Generator yielding all points (trkpt, wpt, rtept) in the GPX file."""
-        for tag in ["trkpt", "wpt", "rtept"]:
+        for tag in ["trkpt"] if tracks_only else ["trkpt", "wpt", "rtept"]:
             for node in self.root.iterfind(f".//gpx:{tag}", self.namespaces):
                 yield GPXPoint(node, self.uri, self.namespaces)
 

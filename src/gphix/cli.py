@@ -12,6 +12,7 @@ from gphix.utils import format_distance, format_duration
 
 from .elevation import add_elevation_to_gpx
 from .fix import ReferencePaths, fill_gaps, find_frozen, find_gaps, fix_frozen
+from .fuse import fuse_segments, suggest_offset
 from .gpx import GPX, GPXMetadata, GPXStats
 
 
@@ -249,6 +250,32 @@ def main(
     meta_parser.add_argument("--copyright", default=None)
     meta_parser.add_argument("--keywords", default=None)
 
+    # --- fuse ---
+    fuse_parser = subparsers.add_parser(
+        "fuse",
+        help="Fuse track point attributes from multiple GPX files into a base file",
+    )
+    _add_input_arg(fuse_parser)
+    _add_output_arg(fuse_parser)
+    fuse_parser.add_argument(
+        "sources", type=Path, nargs="+", help="Source GPX files to fuse attributes from"
+    )
+    fuse_parser.add_argument(
+        "--offset",
+        type=float,
+        default=None,
+        help="Time offset in seconds (auto-suggested if not given)",
+    )
+    fuse_parser.add_argument(
+        "--suggest", action="store_true", help="Only suggest offset without fusing"
+    )
+    fuse_parser.add_argument(
+        "--max-time",
+        type=float,
+        default=float("20"),
+        help="Maximum time difference for a match (default: 20)",
+    )
+
     parsed = parser.parse_args(args)
 
     if parsed.command == "stats":
@@ -331,6 +358,17 @@ def main(
             parsed.name,
             parsed.description,
             parsed.type,
+            out,
+            stdin,
+        )
+    elif parsed.command == "fuse":
+        _cmd_fuse(
+            parsed.input,
+            parsed.sources,
+            parsed.output,
+            parsed.offset,
+            parsed.suggest,
+            parsed.max_time,
             out,
             stdin,
         )
@@ -700,6 +738,53 @@ def _cmd_tracks(
         print(f"    Name: {track.name or ''}", file=out)
         print(f"    Desc: {track.description or ''}", file=out)
         print(f"    Type: {track.track_type or ''}", file=out)
+
+
+def _cmd_fuse(
+    input_file: Path,
+    source_paths: list[Path],
+    output: Path,
+    offset: float | None,
+    suggest: bool,
+    max_time: float,
+    out: TextIO,
+    stdin: BytesIO | None = None,
+) -> None:
+    """Handle the ``fuse`` subcommand."""
+    base = _load_gpx(input_file, stdin)
+
+    if suggest:
+        for src in source_paths:
+            offset, residual = suggest_offset(base, GPX(src))
+            direction = "source leads base" if offset >= 0 else "base leads source"
+            print(
+                f"Suggested offset: {offset:.1f}s ({direction}), median residual: {residual:.1f}s   ({src!s})",
+                file=out,
+            )
+        return
+
+    verbose = output != Path("-")
+    suggest = offset is None
+
+    for src_path in source_paths:
+        src = GPX(src_path)
+        if verbose:
+            print(f"Fusing '{src_path!s}'")
+        if suggest:
+            offset, residual = suggest_offset(base, src)
+            if verbose:
+                print(
+                    f"Offset: {offset:.1f}s, median residual: {residual:.1f}s", file=out
+                )
+        pts, attrs = fuse_segments(base, src, offset=offset, max_time=max_time)
+        if verbose:
+            print(f"Matched {pts} points and copied {attrs} attributes", file=out)
+
+    if verbose:
+        base.write(output)
+        _print_stats(base, out)
+    else:
+        out.write(base.to_string())
 
 
 if __name__ == "__main__":
