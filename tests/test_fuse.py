@@ -1,8 +1,10 @@
 """Tests for the fuse module (DTW offset estimation and attribute fusion)."""
 
+import xml.etree.ElementTree as ET
+
 import pytest
 
-from gphix.fuse import fuse_segments, suggest_offset
+from gphix.fuse import _merge_children, fuse_segments, suggest_offset
 from gphix.gpx import GPX
 
 from .utils import Point, create_gpx
@@ -88,3 +90,30 @@ def test_fuse_segments_multiple_sources():
     for i, pt in enumerate(base.points()):
         assert pt.elevation == pytest.approx(100.0 + i, abs=0.1)
         assert pt.element[-1].text == "150"
+
+
+@pytest.mark.parametrize("use_namespace", [False, True])
+def test_merge_children(use_namespace):
+    """Test recursive merging: existing nodes untouched, new nodes added at any depth."""
+    ns1 = "{http://gpx.one}" if use_namespace else ""
+    ns2 = "{http://gpx.two}" if use_namespace else ""
+
+    parent = ET.Element("root")
+    a = ET.SubElement(parent, f"{ns1}a")
+    ET.SubElement(parent, f"{ns1}b").text = "70"
+    ET.SubElement(a, f"{ns2}d").text = "existing"
+
+    source = ET.Element("root")
+    a_src = ET.SubElement(source, f"{ns1}a")
+    ET.SubElement(source, f"{ns1}b").text = "80"  # existing — keep original
+    ET.SubElement(a_src, f"{ns1}c").text = "150"  # new
+    d_src = ET.SubElement(a_src, f"{ns2}d")
+    ET.SubElement(d_src, f"{ns2}e").text = "nested"  # new at depth 3
+
+    num = _merge_children(parent, source)
+
+    assert num == 2  # c and e are new
+    assert parent.find(f"{ns1}b").text == "70"  # type: ignore
+    assert parent.find(f"{ns1}a/{ns1}c").text == "150"  # type: ignore
+    assert parent.find(f"{ns1}a/{ns2}d").text == "existing"  # type: ignore
+    assert parent.find(f"{ns1}a/{ns2}d/{ns2}e").text == "nested"  # type: ignore

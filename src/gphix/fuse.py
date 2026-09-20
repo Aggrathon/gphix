@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import copy
+import xml.etree.ElementTree as ET
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
-from gphix.gpx import GPX, GPXPoint
+from gphix.gpx import GPX
 from gphix.utils import EARTH_RADIUS_M
 
 if TYPE_CHECKING:
@@ -171,43 +172,41 @@ def fuse_segments(
     """
     import numpy as np
 
-    source_times = [
+    source_pts = [
         (time.timestamp() - offset, pt)
         for pt in source.points(tracks_only=True)
         if (time := pt.time)
     ]
-    source_times.sort(key=lambda x: x[0])
-    source_secs = np.array([t for t, _ in source_times])
+    source_pts.sort(key=lambda x: x[0])
+    source_secs = np.array([t for t, _ in source_pts])
 
-    base_times = [
+    base_pts = [
         (time.timestamp(), pt)
         for pt in base.points(tracks_only=True)
         if (time := pt.time)
     ]
-    base_times.sort(key=lambda x: x[0])
-    base_secs = np.array([t for t, _ in base_times])
+    base_pts.sort(key=lambda x: x[0])
+    base_secs = np.array([t for t, _ in base_pts])
 
     nump = 0
     numa = 0
     for i, j in match_nearest(base_secs, source_secs):
         if abs(base_secs[i] - source_secs[j]) <= max_time:
             nump += 1
-            numa += _copy_attrs(base_times[i][1], source_times[j][1])
+            numa += _merge_children(base_pts[i][1].element, source_pts[j][1].element)
 
     return nump, numa
 
 
-def _copy_attrs(target: GPXPoint, source: GPXPoint) -> int:
-    """Copy attributes from source point to target point where target is missing values.
-
-    Copies elevation and any child elements (e.g. hr, cadence, power)
-    that exist on the source but are not already present on the target.
-    """
-    target_tags = {child.tag.split("}")[-1] for child in target.element}
+def _merge_children(parent: ET.Element, source: ET.Element) -> int:
+    """Recursively merge *source*'s children into *parent*'s children."""
     num = 0
-    for child in source.element:
-        tag = child.tag.split("}")[-1]
-        if tag not in target_tags:
+    for sub in source:
+        tag = sub.tag.split("}")[-1]
+        node = next((c for c in parent if c.tag.split("}")[-1] == tag), None)
+        if node is not None:
+            num += _merge_children(node, sub)
+        else:
             num += 1
-            target.element.append(copy.deepcopy(child))
+            parent.append(copy.deepcopy(sub))
     return num

@@ -422,7 +422,7 @@ def fuse_gpx(
     return {"offset": offset, "points": points, "attrs": attrs}
 
 
-def suggest_offset_gpx(source_path: str) -> dict[str, int]:
+def suggest_offset_gpx(source_path: str) -> dict[str, float]:
     """Suggest the time offset between the current GPX and a source file.
 
     Args:
