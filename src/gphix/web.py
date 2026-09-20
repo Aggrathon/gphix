@@ -8,6 +8,7 @@ from pathlib import Path
 
 from gphix.elevation import add_elevation_to_gpx
 from gphix.fix import ReferencePaths, fill_gaps, find_frozen, find_gaps, fix_frozen
+from gphix.fuse import fuse_segments, suggest_offset
 from gphix.gpx import GPX, GPXMetadata
 from gphix.trim import trim
 from gphix.utils import (
@@ -306,10 +307,18 @@ def apply_clean(
         gpx.clean(outliers, max_distance, max_time, min_size, merge_tracks, add_bounds)
 
 
-def apply_elevation(paths: list[str], radius: float = 50.0, overwrite: bool = False):
-    """Add elevation data to the current GPX from external sources."""
+def apply_elevation(
+    paths: list[str], radius: float = 50.0, overwrite: bool = False
+) -> dict[str, int]:
+    """Add elevation data to the current GPX from external sources.
+
+    Returns:
+        Dict with key ``points`` (number of points updated).
+    """
+    points = 0
     if gpx := clone_next():
-        add_elevation_to_gpx(gpx, paths, overwrite=overwrite, radius=radius)
+        points = add_elevation_to_gpx(gpx, paths, overwrite=overwrite, radius=radius)
+    return {"points": points}
 
 
 def find_issues(
@@ -387,3 +396,43 @@ def save_gpx() -> str | None:
     if current is None:
         return None
     return current.gpx.to_string()
+
+
+def fuse_gpx(
+    source_path: str, offset: float | None = None, max_time: float = 20.0
+) -> dict[str, int | float]:
+    """Fuse attributes from a source GPX into the current GPX.
+
+    Args:
+        source_path: Path to the source GPX file (in the Pyodide FS).
+        offset: Time offset in seconds for the source. Pass ``None`` to auto-suggest.
+        max_time: Maximum time difference in seconds for a match.
+
+    Returns:
+        Dict with keys ``offset``, ``points``, ``attrs``.
+    """
+    if current is None:
+        raise ValueError("No GPX loaded")
+    source = GPX(source_path)
+    if offset is None:
+        offset, _ = suggest_offset(current.gpx, source)
+    points = attrs = 0
+    if gpx := clone_next():
+        points, attrs = fuse_segments(gpx, source, offset=offset, max_time=max_time)
+    return {"offset": offset, "points": points, "attrs": attrs}
+
+
+def suggest_offset_gpx(source_path: str) -> dict[str, int]:
+    """Suggest the time offset between the current GPX and a source file.
+
+    Args:
+        source_path: Path to the source GPX file (in the Pyodide FS).
+
+    Returns:
+        Dict with keys ``offset``, ``residual``.
+    """
+    if current is None:
+        raise ValueError("No GPX loaded")
+    source = GPX(source_path)
+    offset, residual = suggest_offset(current.gpx, source)
+    return {"offset": offset, "residual": residual}

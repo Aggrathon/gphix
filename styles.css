@@ -57,6 +57,7 @@ body {
 body {
     display: flex;
     flex-direction: column;
+    min-width: 56em;
 }
 
 /* ── Utility classes ────────────────────────────────────────────── */
@@ -72,7 +73,7 @@ body {
 .row {
     display: flex;
     gap: var(--gap-lg);
-    align-items: start;
+    align-items: center;
 }
 
 .col {

@@ -91,6 +91,7 @@ async function initPyodide() {
       "trim.py",
       "elevation.py",
       "fix.py",
+      "fuse.py",
     ]) {
       const resp = await fetch("src/gphix/" + f);
       py.FS.writeFile("/gphix/" + f, await resp.text());
@@ -903,10 +904,14 @@ function setupElevation() {
         pyodide.FS.writeFile(`/tmp/_elev_ref/${file.name}`, bytes);
         args.paths.push(`/tmp/_elev_ref/${file.name}`);
       }
-      showLoading("Adding elevation…");
-      await pyodide.runPythonAsync(`apply_elevation(**${pyodide.toPy(args)})`);
-      showLoading("Updating state…");
+      showLoading("Adding elevation...");
+      const result = await pyodide.runPythonAsync(
+        `apply_elevation(**${pyodide.toPy(args)})`,
+      );
+      showLoading("Updating state...");
       emit("state_changed", true);
+      $("#elev-stats").textContent =
+        `Elevation updated: ${result.points} point(s) changed`;
     } catch (err) {
       showToast("Elevation failed: " + err.message);
       console.error(err);
@@ -918,7 +923,83 @@ function setupElevation() {
     }
   });
 
-  on("state_changed", (hasGpx) => ($("#elev-apply").disabled = !hasGpx));
+  on("state_changed", (hasGpx) => {
+    $("#elev-apply").disabled = !hasGpx;
+    $("#elev-stats").textContent = "";
+  });
+}
+
+// ── Fuse ─────────────────────────────────────────────────────────────
+function setupFuse() {
+  async function withSource(action) {
+    const file = $("#fuse-source").files[0];
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    pyodide.FS.mkdirTree("/tmp/_fuse");
+    pyodide.FS.writeFile(`/tmp/_fuse/${file.name}`, bytes);
+    try {
+      showLoading("Loading dependencies...");
+      await pyodide.loadPackage("numpy");
+      return await action(`/tmp/_fuse/${file.name}`);
+    } finally {
+      pyodide.FS.unlink(`/tmp/_fuse/${file.name}`);
+    }
+  }
+
+  $("#fuse-apply").addEventListener("click", async () => {
+    if (!pyodide || !$("#fuse-source").files.length) {
+      return showToast("No source file selected");
+    }
+    try {
+      const maxTime = parseFloat($("#fuse-max-time").value) || 20.0;
+      const offset = parseFloat($("#fuse-offset").value) || "None";
+      const stats = await withSource(async (path) => {
+        showLoading("Fusing tracks...");
+        const result = await pyodide.runPythonAsync(
+          `fuse_gpx("${path}", ${offset}, ${maxTime})`,
+        );
+        return result;
+      });
+      showLoading("Updating state…");
+      emit("state_changed", true);
+      $("#fuse-stats").textContent =
+        `Fuse complete: ${stats.points} points matched, ${stats.attrs} attribute(s) copied`;
+    } catch (err) {
+      showToast("Fuse failed: " + err.message);
+      console.error(err);
+    } finally {
+      hideLoadingLater();
+    }
+  });
+
+  $("#fuse-suggest").addEventListener("click", async () => {
+    if (!pyodide || !$("#fuse-source").files.length) {
+      return showToast("No source file selected");
+    }
+    try {
+      const maxTime = parseFloat($("#fuse-max-time").value) || 20.0;
+      await withSource(async (path) => {
+        showLoading("Calculating offset...");
+        const result = await pyodide.runPythonAsync(`suggest_offset_gpx("${path}")`);
+        const offset = parseFloat(result.offset);
+        const residual = parseFloat(result.residual);
+        $("#fuse-offset").value = offset.toFixed(1);
+        $("#fuse-stats").textContent =
+          `Suggested offset: ${offset.toFixed(1)}s, median misalignment: ${residual.toFixed(1)}s`;
+        if (residual > maxTime) showToast(`Large residual (${residual.toFixed(1)}s)`);
+      });
+    } catch (err) {
+      showToast("Suggest failed: " + err.message);
+      console.error(err);
+    } finally {
+      hideLoading();
+    }
+  });
+
+  on("state_changed", (hasGpx) => {
+    $("#fuse-apply").disabled = !hasGpx;
+    $("#fuse-suggest").disabled = !hasGpx;
+    $("#fuse-stats").textContent = "";
+  });
 }
 
 // ── State and File buttons ───────────────────────────────────────────
@@ -1005,6 +1086,7 @@ setupClean();
 setupTrim();
 setupInsert();
 setupElevation();
+setupFuse();
 setupFix();
 setupMap();
 setupPlots();
