@@ -13,6 +13,7 @@ All interfaces support the same core operations:
 - **Elevation** — Add (missing) elevation data from DEM files or GPX references
 - **Fix** — Fill gaps between segments and repair frozen coordinates using reference tracks or linear interpolation
 - **Clean** — Remove empty segments, outlier points with odd jumps, merge tracks, and add bounds
+- **Fuse** — Combine sensor data from multiple GPX files into one (e.g., merge heart-rate from one track with cadence from another)
 
 ## Web App
 
