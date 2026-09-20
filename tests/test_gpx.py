@@ -121,6 +121,9 @@ def test_gpx_class_parse(tmp_path):
     gpx2 = GPX(output_gpx)
     assert gpx2.root.get("creator") == "GPhiX"
     assert gpx2.to_string() == gpx.to_string()
+    with open(input_gpx, "r") as file:
+        for l1, l2 in zip(file.readlines()[2:], gpx2.to_string().split("\n")[2:]):
+            assert l1.strip() == l2.strip()
 
 
 def test_segments_sort_by_geographic_gap(tmp_path):

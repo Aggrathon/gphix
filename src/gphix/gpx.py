@@ -274,14 +274,17 @@ class GPX:
 
     def __init__(self, file_source: PathLike | str | BytesIO | StringIO | None = None):
         self.uri = "http://www.topografix.com/GPX/1/1"
+        self.namespaces = {"gpx": self.uri, "": self.uri}
         if file_source is None:
             self.root = ET.Element(f"{{{self.uri}}}gpx", version="1.1", creator="GPhiX")
-            self.tree = ET.ElementTree(self.root)
         else:
-            self.tree = ET.parse(file_source)
-            self.root = self.tree.getroot()
-            self.uri = self.root.attrib.get("xmlns", self.uri)
-        self.namespaces: dict[str, str] = {"gpx": self.uri}
+            for ev, val in ET.iterparse(file_source, events=["start-ns", "end"]):
+                if ev == "start-ns":
+                    self.namespaces[val[0]] = val[1]
+            self.root = val
+            if uri := self.root.attrib.get("xmlns", None):
+                self.uri = uri
+                self.namespaces["gpx"] = self.namespaces[""] = uri
 
     def add_track(
         self,
@@ -412,10 +415,11 @@ class GPX:
 
     def write(self, output_path: PathLike | BytesIO) -> None:
         """Write the GPX to a file."""
-        if self.uri:
-            ET.register_namespace("", self.uri)
+        for prefix, uri in self.namespaces.items():
+            ET.register_namespace(prefix, uri)
         self.root.set("creator", "GPhiX")
-        self.tree.write(output_path, encoding="utf-8", xml_declaration=True)
+        tree = ET.ElementTree(self.root)
+        tree.write(output_path, encoding="utf-8", xml_declaration=True)
 
     def stats(self, count_routes: bool = True) -> GPXStats:
         """Compute and return statistics for all points in the GPX.
