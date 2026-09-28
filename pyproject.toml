@@ -1,6 +1,6 @@
 [project]
 name = "gphix"
-version = "1.1.0"
+version = "1.1.1"
 description = "A toolbox to edit and fix issues with GPX files."
 readme = "README.md"
 authors = [

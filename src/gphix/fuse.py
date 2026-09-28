@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import copy
 import xml.etree.ElementTree as ET
+from bisect import insort_left
 from collections.abc import Iterator
+from itertools import islice
 from typing import TYPE_CHECKING
 
 from gphix.gpx import GPX
@@ -35,7 +37,7 @@ def _dtw_distance_matrix(latlon1: ndarray, latlon2: ndarray) -> ndarray:
     return dist
 
 
-def match_dtw(latlon1: ndarray, latlon2: ndarray) -> Iterator[tuple[int, int]]:
+def match_dtw(latlon1: ndarray, latlon2: ndarray) -> Iterator[tuple[int, int, float]]:
     """Compute DTW alignment and return the closest one-to-one matches on the optimal path."""
     import numpy as np
 
@@ -71,11 +73,11 @@ def match_dtw(latlon1: ndarray, latlon2: ndarray) -> Iterator[tuple[int, int]]:
     if n < m:
         for i, j in enumerate(jfi):
             if ifj[j] == i:
-                yield i, j
+                yield i, j, dist_matrix[i, j]
     else:
         for j, i in enumerate(ifj):
             if jfi[i] == j:
-                yield i, j
+                yield i, j, dist_matrix[i, j]
 
 
 def _nearest_idx(insert: int, value: float, arr: ndarray) -> int:
@@ -102,7 +104,9 @@ def match_nearest(a: ndarray, b: ndarray) -> Iterator[tuple[int, int]]:
             yield i, j
 
 
-def suggest_offset(base: GPX, source: GPX) -> tuple[float, float]:
+def suggest_offset(
+    base: GPX, source: GPX, num: int = 1_000
+) -> tuple[float, float, float]:
     """Estimate the time offset between base and source GPX files using DTW.
 
     Computes DTW alignment between the first segment of each file based on
@@ -111,32 +115,30 @@ def suggest_offset(base: GPX, source: GPX) -> tuple[float, float]:
     Args:
         base: Base GPX (coordinates from this).
         source: Source GPX (attributes from this).
+        num: maximum number of points to match
 
     Returns:
-        ``(median_offset_seconds, median_residual_seconds)`` where positive
+        ``(median_offset_seconds, median_residual_seconds, median_distance)`` where positive
         offset means the source clock leads the base clock.
 
     Raises:
         ValueError: If either file has no segments or no time data.
     """
-    base_segs = base.segments()
-    source_segs = source.segments()
-    if not base_segs or not source_segs:
-        raise ValueError("Both GPX files must have at least one segment")
-
-    base_points = [
+    base_points = (
         [pt.latitude, pt.longitude, time.timestamp()]
-        for pt in base_segs[0].points()
+        for pt in base.points(True, True)
         if (time := pt.time)
-    ]
-    source_points = [
+    )
+    base_points = list(islice(base_points, 1_000))
+    source_points = (
         [pt.latitude, pt.longitude, time.timestamp()]
-        for pt in source_segs[0].points()
+        for pt in source.points(True, True)
         if (time := pt.time)
-    ]
+    )
+    source_points = list(islice(source_points, 1_000))
 
     if len(base_points) < 2 or len(source_points) < 2:
-        raise ValueError("Both tracks must have at least 2 points")
+        raise ValueError("Both tracks must have at least 2 points with times")
 
     import numpy as np
 
@@ -144,13 +146,17 @@ def suggest_offset(base: GPX, source: GPX) -> tuple[float, float]:
     source_coords = np.array(source_points)
 
     # Compute DTW
-    path = list(match_dtw(base_coords[:, :2], source_coords[:, :2]))
-    offset = np.array([source_coords[j, 2] - base_coords[i, 2] for i, j in path])
-    if len(offset) < 2:
+    offsets = [
+        [source_coords[j, 2] - base_coords[i, 2], d]
+        for i, j, d in match_dtw(base_coords[:, :2], source_coords[:, :2])
+    ]
+    offsets = np.array(offsets)
+    if len(offsets) < 2:
         raise ValueError("The match must have at least 2 points")
-    median_offset = np.median(offset)
-    median_residual = np.median(np.abs(offset - median_offset))
-    return float(median_offset), float(median_residual)
+    median_time = np.median(offsets[:, 0])
+    time_residual = np.median(np.abs(offsets[:, 0] - median_time))
+    dist_residual = np.median(np.abs(offsets[:, 1]))
+    return float(median_time), float(time_residual), float(dist_residual)
 
 
 def fuse_segments(

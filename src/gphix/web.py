@@ -415,11 +415,17 @@ def fuse_gpx(
         raise ValueError("No GPX loaded")
     source = GPX(source_path)
     if offset is None:
-        offset, _ = suggest_offset(current.gpx, source)
+        offset, resid, dist = suggest_offset(current.gpx, source)
     points = attrs = 0
     if gpx := clone_next():
         points, attrs = fuse_segments(gpx, source, offset=offset, max_time=max_time)
-    return {"offset": offset, "points": points, "attrs": attrs}
+    return {
+        "offset": offset,
+        "points": points,
+        "attrs": attrs,
+        "residual": resid,
+        "dist": dist,
+    }
 
 
 def suggest_offset_gpx(source_path: str) -> dict[str, float]:
@@ -434,5 +440,5 @@ def suggest_offset_gpx(source_path: str) -> dict[str, float]:
     if current is None:
         raise ValueError("No GPX loaded")
     source = GPX(source_path)
-    offset, residual = suggest_offset(current.gpx, source)
-    return {"offset": offset, "residual": residual}
+    offset, residual, dist = suggest_offset(current.gpx, source)
+    return {"offset": offset, "residual": residual, "dist": dist}

@@ -338,8 +338,16 @@ class GPX:
                     merged.root.append(copy.deepcopy(child))
         return merged
 
-    def points(self, tracks_only: bool = False) -> Iterator[GPXPoint]:
+    def points(
+        self, tracks_only: bool = False, sorted: bool = False
+    ) -> Iterator[GPXPoint]:
         """Generator yielding all points (trkpt, wpt, rtept) in the GPX file."""
+        if sorted:
+            if not tracks_only:
+                raise NotImplementedError("Sorted is only implemented for track points")
+            for seg in self.segments(sorted=sorted, routes=False):
+                yield from seg.points()
+            return
         for tag in ["trkpt"] if tracks_only else ["trkpt", "wpt", "rtept"]:
             for node in self.root.iterfind(f".//gpx:{tag}", self.namespaces):
                 yield GPXPoint(node, self.uri, self.namespaces)

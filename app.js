@@ -982,10 +982,14 @@ function setupFuse() {
         const result = await pyodide.runPythonAsync(`suggest_offset_gpx("${path}")`);
         const offset = parseFloat(result.offset);
         const residual = parseFloat(result.residual);
+        const distance = parseFloat(result.distance);
         $("#fuse-offset").value = offset.toFixed(1);
         $("#fuse-stats").textContent =
-          `Suggested offset: ${offset.toFixed(1)}s, median misalignment: ${residual.toFixed(1)}s`;
-        if (residual > maxTime) showToast(`Large residual (${residual.toFixed(1)}s)`);
+          `Suggested offset: ${offset.toFixed(1)}s, median misalignment: ${residual.toFixed(1)}s, median distance: ${distance.toFixed(1)}m`;
+        if (residual > maxTime)
+          showToast(`Large time residual (${residual.toFixed(1)}s)`);
+        else if (distance > 10)
+          showToast(`Large distance residual (${distance.toFixed(1)}m)`);
       });
     } catch (err) {
       showToast("Suggest failed: " + err.message);

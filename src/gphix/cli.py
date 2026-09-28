@@ -755,10 +755,10 @@ def _cmd_fuse(
 
     if suggest:
         for src in source_paths:
-            offset, residual = suggest_offset(base, GPX(src))
+            offset, residual, distance = suggest_offset(base, GPX(src))
             direction = "source leads base" if offset >= 0 else "base leads source"
             print(
-                f"Suggested offset: {offset:.1f}s ({direction}), median residual: {residual:.1f}s   ({src!s})",
+                f"Suggested offset: {offset:.1f}s ({direction}), median residual: {residual:.1f}s, median distance: {distance:.1f}m   ({src!s})",
                 file=out,
             )
         return
@@ -771,10 +771,11 @@ def _cmd_fuse(
         if verbose:
             print(f"Fusing '{src_path!s}'")
         if suggest:
-            offset, residual = suggest_offset(base, src)
+            offset, residual, distance = suggest_offset(base, src)
             if verbose:
                 print(
-                    f"Offset: {offset:.1f}s, median residual: {residual:.1f}s", file=out
+                    f"Offset: {offset:.1f}s, median residual: {residual:.1f}s, median distance: {distance:.1f}m",
+                    file=out,
                 )
         pts, attrs = fuse_segments(base, src, offset=offset, max_time=max_time)
         if verbose:

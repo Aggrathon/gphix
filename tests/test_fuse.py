@@ -24,20 +24,13 @@ def test_suggest_offset(time_shift, drift, num_diff, index):
             for i in range(index, num_src + index)
         ]
     )
-    offset, residual = suggest_offset(base, source)
+    offset, residual, _ = suggest_offset(base, source)
     if drift == int(drift) or abs(num_base - num_src * drift) < 0.01:
         assert offset == pytest.approx(time_shift, abs=0.001)
         assert residual == pytest.approx(0.0, abs=0.001)
     else:
         assert offset == pytest.approx(time_shift, abs=0.3)
         assert residual > 0
-
-
-def test_suggest_offset_no_segments():
-    empty = GPX(None)
-    source = create_gpx([Point(48.8, 2.2, time=i) for i in range(10)])
-    with pytest.raises(ValueError, match="segment"):
-        suggest_offset(empty, source)
 
 
 @pytest.mark.parametrize("ele", [None, 50])
